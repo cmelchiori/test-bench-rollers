@@ -163,7 +163,15 @@ class BenchTuiViews:
 
     def _refresh_scan_nodes(self) -> None:
         nodes = sorted(self.session.nodes)
-        display = f"Nodos detectados: {', '.join(nodes)}" if nodes else "Nodos: ninguno"
+        display = Text("Nodos detectados: ") if nodes else Text("Nodos: ninguno")
+        for index, mesh_id in enumerate(nodes):
+            if index:
+                display.append(", ")
+            display.append(mesh_id)
+            rssi = self.session.node_rssi.get(mesh_id)
+            if rssi is not None:
+                color = "green" if rssi >= -60 else "yellow" if rssi >= -75 else "red"
+                display.append(f" ({rssi} dBm)", style=color)
         self._update_visible("scan-nodes", display)
 
     def _render_home_summary(self) -> None:
@@ -196,7 +204,14 @@ class BenchTuiViews:
             if value:
                 content.append(value, style=value_style)
 
-        add_line(identity, "Nodo seleccionado: ", selected)
+        if self.session.selected_node:
+            add_line(identity, "Nodo seleccionado: ", self.session.selected_node)
+            rssi = self.session.node_rssi.get(self.session.selected_node)
+            if rssi is not None:
+                color = "green" if rssi >= -60 else "yellow" if rssi >= -75 else "red"
+                identity.append(f" ({rssi} dBm)", style=color)
+        else:
+            add_line(identity, "Nodo seleccionado: ", selected)
         add_line(identity, "Device ID: ", self.session.device_id or "—")
         add_line(identity, "MAC: ", self.session.mac_address or "No recibida")
         payload = self.session.telemetry
@@ -269,7 +284,7 @@ class BenchTuiViews:
         upper = f"≤ {maximum:g}" if maximum is not None else "sin máximo"
         return f" (configurado: {lower} / {upper} {unit})"
 
-    def _update_visible(self, widget_id: str, value: str) -> None:
+    def _update_visible(self, widget_id: str, value: str | Text) -> None:
         self.query_one(f"#{widget_id}", Static).update(value)
 
     def _status_text(self) -> str:

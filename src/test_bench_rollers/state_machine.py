@@ -117,6 +117,7 @@ TRANSITIONS: dict[BenchState, dict[BenchEvent, BenchState]] = {
 class BenchSession:
     state: BenchState = BenchState.IDLE
     nodes: set[str] = field(default_factory=set)
+    node_rssi: dict[str, int] = field(default_factory=dict)
     selected_node: str | None = None
     mac_address: str | None = None
     device_id: str | None = None
@@ -153,6 +154,7 @@ class BenchSession:
             self.link_confirmed = False
         if event is BenchEvent.RESET:
             self.nodes.clear()
+            self.node_rssi.clear()
             self.selected_node = None
             self.mac_address = None
             self.device_id = None

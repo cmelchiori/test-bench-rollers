@@ -70,6 +70,7 @@ class BenchWorkflow:
             raise RuntimeError(f"No se puede buscar durante {state.value}")
 
         self.session.nodes.clear()
+        self.session.node_rssi.clear()
         self.session.selected_node = None
         self.session.mac_address = None
         self.session.device_id = None
@@ -87,6 +88,9 @@ class BenchWorkflow:
             self.session.last_serial_message = raw
             self.on_message(raw)
             mesh_match = decode_mesh_id(raw)
+            rssi_match = re.search(r"\bRSSI:\s*(-?\d+)\s*dBm\b", raw, re.IGNORECASE)
+            if mesh_match is not None and rssi_match is not None:
+                self.session.node_rssi[mesh_match] = int(rssi_match.group(1))
             if mesh_match is None or mesh_match in self.session.nodes:
                 continue
             self.session.nodes.add(mesh_match)

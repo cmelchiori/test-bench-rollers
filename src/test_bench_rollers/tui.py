@@ -7,6 +7,7 @@ import asyncio
 import time
 from typing import Any
 
+from rich.text import Text
 from textual.app import App
 from textual.containers import Horizontal
 from textual.css.query import NoMatches
@@ -149,8 +150,22 @@ class BenchTuiApp(BenchTuiViews, App[None]):
         self._update_visible("home-summary", "Prueba limpiada. Selecciona un nodo para iniciar otra.")
         self._render_metrics()
         self._log("Resultado y datos de prueba limpiados; nodos detectados conservados")
-        self._set_busy(False)
+        self._set_busy(True)
+        self.run_worker(
+            self._enable_testmode(), name="testmode", group="operation", exclusive=True, exit_on_error=False
+        )
         self._refresh_status()
+
+    async def _enable_testmode(self) -> None:
+        try:
+            if self.gateway is None:
+                raise RuntimeError("El puerto serial no está conectado")
+            await self.gateway.send("local testmode on")
+            self._log("TX local testmode on")
+        except (OSError, RuntimeError) as exc:
+            self._set_error(str(exc))
+        finally:
+            self._set_busy(False)
 
     def action_scan(self) -> None:
         self._start_action(self._scan(), "scan")
@@ -190,7 +205,7 @@ class BenchTuiApp(BenchTuiViews, App[None]):
                 progress_labels=False,
             )
             nodes = await workflow.scan(self.args.scan_seconds)
-            selector.set_options((mesh_id, mesh_id) for mesh_id in sorted(nodes))
+            selector.set_options((self._node_render_label(mesh_id), mesh_id) for mesh_id in sorted(nodes))
             if nodes:
                 selector.value = sorted(nodes)[0]
             self._refresh_scan_nodes()
@@ -395,6 +410,14 @@ class BenchTuiApp(BenchTuiViews, App[None]):
         self._render_home_summary()
         self._set_busy(self._busy)
         self._refresh_status()
+
+    def _node_render_label(self, mesh_id: str) -> Text:
+        label = Text(mesh_id)
+        rssi = self.session.node_rssi.get(mesh_id)
+        if rssi is not None:
+            color = "green" if rssi >= -60 else "yellow" if rssi >= -75 else "red"
+            label.append(f" ({rssi} dBm)", style=color)
+        return label
 
     async def _unlink_group(self) -> None:
         try:
