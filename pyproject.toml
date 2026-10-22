@@ -23,3 +23,10 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 mesh-schemas = { path = "packages/mesh-schemas", editable = true }
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]

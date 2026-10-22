@@ -8,12 +8,12 @@ import re
 import time
 from typing import Any
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Button, RichLog, Select, Static, TabbedContent, TabPane
-from rich.text import Text
 
 from .cli import HARDWARE_ALERT_TEMP_C, evaluate
 from .remote_console import RemoteConsoleServer
@@ -162,7 +162,12 @@ class BenchTuiApp(App[None]):
                         with Vertical(id="node-panel"):
                             yield Static("N O D O S", id="node-heading")
                             yield Static("Nodos: ninguno", id="scan-nodes")
-                            yield Select([], prompt="Primero busca nodos", allow_blank=True, id="node-select")
+                            yield Select(
+                                [],
+                                prompt="Primero busca nodos",
+                                allow_blank=True,
+                                id="node-select",
+                            )
                             yield Button("LIMPIAR PRUEBA", id="clear-test", disabled=True)
                             yield Static("Esperando búsqueda…", id="state")
                         with Vertical(id="detail-panel"):
@@ -177,12 +182,23 @@ class BenchTuiApp(App[None]):
                                     id="metrics",
                                     markup=False,
                                 )
-                                yield Static("Telemetría: —", id="telemetry-metrics", markup=False)
+                                yield Static(
+                                    "Telemetría: —",
+                                    id="telemetry-metrics",
+                                    markup=False,
+                                )
                     with Horizontal(id="identity-actions"):
-                        yield Button("REINTENTAR IDENTIDAD", id="retry-identity", variant="warning")
+                        yield Button(
+                            "REINTENTAR IDENTIDAD",
+                            id="retry-identity",
+                            variant="warning",
+                        )
             with TabPane("Depuración", id="debug-tab"):
                 with Vertical(id="debug-pane"):
-                    yield Static("Registro serial de solo consulta para diagnóstico.", id="debug-description")
+                    yield Static(
+                        "Registro serial de solo consulta para diagnóstico.",
+                        id="debug-description",
+                    )
                     yield RichLog(id="serial-log", wrap=True, markup=False, max_lines=1000)
 
     async def on_mount(self) -> None:
@@ -220,9 +236,7 @@ class BenchTuiApp(App[None]):
             gateway = self._gateway_factory(self.args.port, self.args.baudrate)
             await gateway.__aenter__()
             self.gateway = gateway
-            self.query_one("#connection", Static).update(
-                f"UART · {self.args.port} @ {self.args.baudrate} · conectado"
-            )
+            self.query_one("#connection", Static).update(f"UART · {self.args.port} @ {self.args.baudrate} · conectado")
             self._log(f"Puerto serial abierto: {self.args.port} @ {self.args.baudrate} baud")
             self._refresh_status()
         except (OSError, RuntimeError) as exc:
@@ -405,7 +419,10 @@ class BenchTuiApp(App[None]):
                     linked = True
                     break
                 if outcome is False:
-                    self.session.dispatch(BenchEvent.LINK_REJECTED, detail=f"El nodo {selected} respondió UNLINK")
+                    self.session.dispatch(
+                        BenchEvent.LINK_REJECTED,
+                        detail=f"El nodo {selected} respondió UNLINK",
+                    )
                     self._refresh_status()
                     return
             if not linked:
@@ -509,9 +526,7 @@ class BenchTuiApp(App[None]):
             selected = self.session.selected_node
             await self._identify_mac(selected, getattr(self.args, "identify_timeout", 5.0))
             if not self.session.device_id:
-                await self._request_identity_telemetry(
-                    selected, getattr(self.args, "response_timeout", 10.0)
-                )
+                await self._request_identity_telemetry(selected, getattr(self.args, "response_timeout", 10.0))
             if self._identity_complete():
                 self.session.dispatch(BenchEvent.IDENTITY_COMPLETE)
                 self._apply_quality_result()
@@ -625,7 +640,11 @@ class BenchTuiApp(App[None]):
         self._render_metrics()
 
     def _set_error(self, detail: str) -> None:
-        if self.session.state not in {BenchState.ERROR, BenchState.PASSED, BenchState.FAILED}:
+        if self.session.state not in {
+            BenchState.ERROR,
+            BenchState.PASSED,
+            BenchState.FAILED,
+        }:
             self.session.dispatch(BenchEvent.ERROR, detail=detail)
         else:
             self.session.error = detail
@@ -660,15 +679,9 @@ class BenchTuiApp(App[None]):
             or self._remote_active
             or not (self.session.selected_node or self.session.telemetry or self.session.result or self.session.error)
         )
-        self.query_one("#test", Button).disabled = (
-            busy
-            or self._remote_active
-            or not self._can_request_selected()
-        )
+        self.query_one("#test", Button).disabled = busy or self._remote_active or not self._can_request_selected()
         self._refresh_request_button()
-        self.query_one("#identity-actions", Horizontal).display = (
-            self.session.state is BenchState.IDENTITY_PENDING
-        )
+        self.query_one("#identity-actions", Horizontal).display = self.session.state is BenchState.IDENTITY_PENDING
 
     def _refresh_scan_nodes(self) -> None:
         nodes = sorted(self.session.nodes)
@@ -689,7 +702,13 @@ class BenchTuiApp(App[None]):
         identity = Text()
         telemetry = Text()
 
-        def add_line(content: Text, label: str = "", value: str = "", *, value_style: str | None = None) -> None:
+        def add_line(
+            content: Text,
+            label: str = "",
+            value: str = "",
+            *,
+            value_style: str | None = None,
+        ) -> None:
             if content.plain:
                 content.append("\n")
             if label:
@@ -721,8 +740,7 @@ class BenchTuiApp(App[None]):
             )
             link_state = (
                 "linked"
-                if self.session.state
-                in {BenchState.PASSED, BenchState.FAILED, BenchState.IDENTITY_PENDING}
+                if self.session.state in {BenchState.PASSED, BenchState.FAILED, BenchState.IDENTITY_PENDING}
                 else "—"
             )
             rpm_range = self._format_range(
@@ -742,7 +760,10 @@ class BenchTuiApp(App[None]):
             add_line(identity, "Resultado QA: ", result, value_style=result_style)
             add_line(identity, "Criterios aplicados:")
             add_line(identity, value=f"  - RPM > 0{rpm_range}")
-            add_line(identity, value=f"  - Temperaturas válidas y ≤ {HARDWARE_ALERT_TEMP_C} °C{temperature_range}")
+            add_line(
+                identity,
+                value=f"  - Temperaturas válidas y ≤ {HARDWARE_ALERT_TEMP_C} °C{temperature_range}",
+            )
             add_line(identity, value="  - Sin alarmas latched activas")
             add_line(telemetry, "Telemetría")
             add_line(telemetry, "RPM: ", f"{fields.get('rpm', '—')} RPM")
@@ -804,9 +825,7 @@ class BenchTuiApp(App[None]):
         if remote_status != self._last_remote_status:
             self._last_remote_status = remote_status
             if self.remote_console is not None:
-                asyncio.create_task(
-                    self.remote_console.publish({"type": "status", "status": remote_status})
-                )
+                asyncio.create_task(self.remote_console.publish({"type": "status", "status": remote_status}))
 
     def _request_wait_seconds(self) -> float:
         if self.gateway is None:
@@ -842,9 +861,7 @@ class BenchTuiApp(App[None]):
             seconds = int(remaining + 0.999)
             advisory = getattr(self.gateway, "request_cooldown_is_advisory", None) if self.gateway else None
             button.label = (
-                f"REQUEST NODE · {seconds}s"
-                if callable(advisory) and advisory()
-                else f"REQUEST FORZADO {seconds}s"
+                f"REQUEST NODE · {seconds}s" if callable(advisory) and advisory() else f"REQUEST FORZADO {seconds}s"
             )
         else:
             button.label = "REQUEST NODE"
@@ -862,19 +879,12 @@ class BenchTuiApp(App[None]):
         }
 
     async def _acquire_remote(self, client_name: str) -> bool:
-        if (
-            self._busy
-            or self.gateway is None
-            or self._remote_active
-            or isinstance(self.screen, ConfirmUnlinkScreen)
-        ):
+        if self._busy or self.gateway is None or self._remote_active or isinstance(self.screen, ConfirmUnlinkScreen):
             return False
         self._remote_active = True
         self._remote_client = client_name
         self._set_busy(False)
-        self.query_one("#remote-status", Static).update(
-            f"REMOTE · control activo · {client_name}"
-        )
+        self.query_one("#remote-status", Static).update(f"REMOTE · control activo · {client_name}")
         self._refresh_status()
         return True
 
@@ -884,10 +894,12 @@ class BenchTuiApp(App[None]):
         self._remote_active = False
         self._remote_client = None
         self._set_busy(False)
-        port = self.remote_console.bound_port if self.remote_console is not None else getattr(self.args, "remote_port", 8765)
-        self.query_one("#remote-status", Static).update(
-            f"REMOTE · 127.0.0.1:{port} · SSH"
+        port = (
+            self.remote_console.bound_port
+            if self.remote_console is not None
+            else getattr(self.args, "remote_port", 8765)
         )
+        self.query_one("#remote-status", Static).update(f"REMOTE · 127.0.0.1:{port} · SSH")
         self._refresh_status()
 
     async def _confirm_remote_command(self, command: str) -> bool:

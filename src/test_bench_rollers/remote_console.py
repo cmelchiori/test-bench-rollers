@@ -6,14 +6,14 @@ import argparse
 import asyncio
 import getpass
 import json
-from datetime import datetime
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import Any
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Header, Input, RichLog, Static
-from rich.text import Text
 
 from .serial_gateway import SerialGateway
 
@@ -119,12 +119,21 @@ class RemoteConsoleServer:
             raw = await asyncio.wait_for(reader.readline(), timeout=5)
             hello = json.loads(raw)
             if hello.get("type") != "hello":
-                await self._send(writer, {"type": "error", "message": "Se esperaba el saludo de la consola"})
+                await self._send(
+                    writer,
+                    {"type": "error", "message": "Se esperaba el saludo de la consola"},
+                )
                 return
             client_name = str(hello.get("client", "sesión remota"))[:80]
             async with self._client_lock:
                 if self._clients:
-                    await self._send(writer, {"type": "error", "message": "Ya hay una sesión remota conectada"})
+                    await self._send(
+                        writer,
+                        {
+                            "type": "error",
+                            "message": "Ya hay una sesión remota conectada",
+                        },
+                    )
                     return
                 self._clients.add(writer)
             self.log(f"Observador remoto conectado: {client_name} desde {peer}")
@@ -150,17 +159,41 @@ class RemoteConsoleServer:
                 kind = message.get("type")
                 if kind == "acquire":
                     if self._active_writer is not None and self._active_writer is not writer:
-                        await self._send(writer, {"type": "control-denied", "message": "El UART ya está bajo control remoto"})
+                        await self._send(
+                            writer,
+                            {
+                                "type": "control-denied",
+                                "message": "El UART ya está bajo control remoto",
+                            },
+                        )
                     elif owns_control:
-                        await self._send(writer, {"type": "control-granted", "message": "Ya tienes el control del UART"})
+                        await self._send(
+                            writer,
+                            {
+                                "type": "control-granted",
+                                "message": "Ya tienes el control del UART",
+                            },
+                        )
                     elif not await self.acquire(client_name):
-                        await self._send(writer, {"type": "control-denied", "message": "Banco ocupado; puedes seguir observando y volver a intentar"})
+                        await self._send(
+                            writer,
+                            {
+                                "type": "control-denied",
+                                "message": "Banco ocupado; puedes seguir observando y volver a intentar",
+                            },
+                        )
                     else:
                         owns_control = True
                         self._active_writer = writer
                         self._active_client = client_name
                         self.log(f"Control remoto del UART tomado por {client_name}")
-                        await self._send(writer, {"type": "control-granted", "message": "Control UART concedido; las pruebas locales están bloqueadas"})
+                        await self._send(
+                            writer,
+                            {
+                                "type": "control-granted",
+                                "message": "Control UART concedido; las pruebas locales están bloqueadas",
+                            },
+                        )
                     continue
                 if kind == "release":
                     if owns_control:
@@ -169,27 +202,49 @@ class RemoteConsoleServer:
                         self._active_client = None
                         await self.release(client_name)
                         self.log(f"Control remoto del UART liberado por {client_name}")
-                    await self._send(writer, {"type": "released", "message": "Control liberado; la sesión continúa en observación"})
+                    await self._send(
+                        writer,
+                        {
+                            "type": "released",
+                            "message": "Control liberado; la sesión continúa en observación",
+                        },
+                    )
                     continue
                 if kind != "command":
-                    await self._send(writer, {"type": "error", "message": "Tipo de mensaje no soportado"})
+                    await self._send(
+                        writer,
+                        {"type": "error", "message": "Tipo de mensaje no soportado"},
+                    )
                     continue
                 if not owns_control:
-                    await self._send(writer, {"type": "error", "message": "Solo puedes enviar comandos después de tomar el control UART"})
+                    await self._send(
+                        writer,
+                        {
+                            "type": "error",
+                            "message": "Solo puedes enviar comandos después de tomar el control UART",
+                        },
+                    )
                     continue
                 command = message.get("command")
                 if not isinstance(command, str) or not command.strip() or len(command) > 256:
-                    await self._send(writer, {"type": "error", "message": "Comando vacío o demasiado largo"})
+                    await self._send(
+                        writer,
+                        {"type": "error", "message": "Comando vacío o demasiado largo"},
+                    )
                     continue
                 if any(ord(character) < 32 or ord(character) == 127 for character in command):
-                    await self._send(writer, {"type": "error", "message": "El comando debe ocupar una sola línea"})
+                    await self._send(
+                        writer,
+                        {
+                            "type": "error",
+                            "message": "El comando debe ocupar una sola línea",
+                        },
+                    )
                     continue
                 command = command.strip()
                 if command.casefold() == "remote unlink group":
                     confirmation = asyncio.create_task(self.confirm_command(command))
-                    done, _ = await asyncio.wait(
-                        {confirmation, line_task}, return_when=asyncio.FIRST_COMPLETED
-                    )
+                    done, _ = await asyncio.wait({confirmation, line_task}, return_when=asyncio.FIRST_COMPLETED)
                     if line_task in done:
                         pending_raw = line_task.result()
                         line_task = asyncio.create_task(reader.readline())
@@ -200,13 +255,22 @@ class RemoteConsoleServer:
                             pass
                         if not pending_raw:
                             break
-                        await self._send(writer, {
-                            "type": "error",
-                            "message": "Unlink Group cancelado; llegó otro mensaje antes de la confirmación local",
-                        })
+                        await self._send(
+                            writer,
+                            {
+                                "type": "error",
+                                "message": "Unlink Group cancelado; llegó otro mensaje antes de la confirmación local",
+                            },
+                        )
                         continue
                     if not confirmation.result():
-                        await self._send(writer, {"type": "error", "message": "Unlink Group cancelado por el operador"})
+                        await self._send(
+                            writer,
+                            {
+                                "type": "error",
+                                "message": "Unlink Group cancelado por el operador",
+                            },
+                        )
                         continue
                 current_gateway = self.gateway_provider()
                 if current_gateway is None:
@@ -219,7 +283,13 @@ class RemoteConsoleServer:
                     continue
                 self.log(f"TX remoto [{client_name}]: {command}")
                 await self._send(writer, {"type": "sent", "command": command})
-        except (asyncio.TimeoutError, ConnectionError, OSError, json.JSONDecodeError, RuntimeError) as exc:
+        except (
+            TimeoutError,
+            ConnectionError,
+            OSError,
+            json.JSONDecodeError,
+            RuntimeError,
+        ) as exc:
             if not writer.is_closing():
                 try:
                     await self._send(writer, {"type": "error", "message": str(exc)})
@@ -303,16 +373,33 @@ class RemoteConsoleApp(App[None]):
                 yield Static("OBSERVACIÓN", id="control-status", classes="control-observe")
             yield Static("Estado del banco: esperando conexión", id="bench-status")
             with Horizontal(id="control-row"):
-                yield Button("TOMAR CONTROL UART", id="take-control", variant="warning", disabled=True)
-                yield Button("LIBERAR UART", id="release-control", variant="success", disabled=True)
+                yield Button(
+                    "TOMAR CONTROL UART",
+                    id="take-control",
+                    variant="warning",
+                    disabled=True,
+                )
+                yield Button(
+                    "LIBERAR UART",
+                    id="release-control",
+                    variant="success",
+                    disabled=True,
+                )
                 yield Button("CONECTAR", id="connect", variant="primary")
                 yield Button("SALIR", id="quit", variant="error")
             yield Static("TRÁFICO UART · MENSAJES EN TIEMPO REAL", id="log-title")
             yield RichLog(id="remote-log", wrap=True, markup=False, max_lines=2000)
             with Horizontal(id="command-row"):
-                yield Input(placeholder="Comando del gateway, por ejemplo: remote scan group", id="command", disabled=True)
+                yield Input(
+                    placeholder="Comando del gateway, por ejemplo: remote scan group",
+                    id="command",
+                    disabled=True,
+                )
                 yield Button("ENVIAR", id="send-command", variant="primary", disabled=True)
-            yield Static("Al tomar el control se bloquean las pruebas locales. :take / :release también están disponibles.", id="help")
+            yield Static(
+                "Al tomar el control se bloquean las pruebas locales. :take / :release también están disponibles.",
+                id="help",
+            )
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -373,9 +460,7 @@ class RemoteConsoleApp(App[None]):
                 self._log(raw.decode(errors="replace").rstrip())
                 continue
             kind = event.get("type")
-            if kind == "connected":
-                self._update_status(event.get("status", {}))
-            elif kind == "status":
+            if kind == "connected" or kind == "status":
                 self._update_status(event.get("status", {}))
             elif kind == "control-granted":
                 self.has_control = True
@@ -451,11 +536,24 @@ class RemoteConsoleApp(App[None]):
         if event.button.id == "quit":
             self.exit()
         elif event.button.id == "connect" and not self.connected:
-            self.run_worker(self._connect(), name="remote-connect", group="remote", exit_on_error=False)
+            self.run_worker(
+                self._connect(),
+                name="remote-connect",
+                group="remote",
+                exit_on_error=False,
+            )
         elif event.button.id == "take-control":
-            self.run_worker(self._send({"type": "acquire"}), name="take-control", exit_on_error=False)
+            self.run_worker(
+                self._send({"type": "acquire"}),
+                name="take-control",
+                exit_on_error=False,
+            )
         elif event.button.id == "release-control":
-            self.run_worker(self._send({"type": "release"}), name="release-control", exit_on_error=False)
+            self.run_worker(
+                self._send({"type": "release"}),
+                name="release-control",
+                exit_on_error=False,
+            )
         elif event.button.id == "send-command":
             self._submit_command()
 
@@ -468,9 +566,17 @@ class RemoteConsoleApp(App[None]):
         if not value:
             return
         if value.casefold() == ":take":
-            self.run_worker(self._send({"type": "acquire"}), name="take-control", exit_on_error=False)
+            self.run_worker(
+                self._send({"type": "acquire"}),
+                name="take-control",
+                exit_on_error=False,
+            )
         elif value.casefold() == ":release":
-            self.run_worker(self._send({"type": "release"}), name="release-control", exit_on_error=False)
+            self.run_worker(
+                self._send({"type": "release"}),
+                name="release-control",
+                exit_on_error=False,
+            )
         else:
             if value.casefold() == "remote unlink group":
                 self._log("AVISO · Esperando confirmación en la pantalla local…")

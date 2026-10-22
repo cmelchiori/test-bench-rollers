@@ -9,7 +9,6 @@ import time
 from collections.abc import AsyncIterator
 
 from aioserial import AioSerial
-
 from mesh_schemas import (
     ROLLER_DATA_V10_SCHEMA,
     ROLLER_DATA_V11_SCHEMA,
@@ -34,9 +33,7 @@ SCHEMA_BY_MESSAGE = {
     "DATA1.2": ROLLER_DATA_V12_SCHEMA,
 }
 REQUEST_COOLDOWN_SECONDS = 65.0
-REQUEST_COMMAND_RE = re.compile(
-    r"^remote\s+request\s+(?P<mesh>0[xX][0-9A-Fa-f]{1,4})$", re.IGNORECASE
-)
+REQUEST_COMMAND_RE = re.compile(r"^remote\s+request\s+(?P<mesh>0[xX][0-9A-Fa-f]{1,4})$", re.IGNORECASE)
 IS_REQUEST_COMMAND_RE = re.compile(r"^remote\s+request(?:\s|$)", re.IGNORECASE)
 
 
@@ -106,9 +103,7 @@ class SerialGateway:
             return 0.0
         return max(
             0.0,
-            self._request_cooldown_started_at
-            + REQUEST_COOLDOWN_SECONDS
-            - time.monotonic(),
+            self._request_cooldown_started_at + REQUEST_COOLDOWN_SECONDS - time.monotonic(),
         )
 
     def request_cooldown_is_advisory(self) -> bool:
@@ -183,17 +178,12 @@ class SerialGateway:
                 except asyncio.CancelledError:
                     await asyncio.shield(flush_task)
                     raise
-            if (
-                command.strip().casefold() == "remote scan group"
-                and self._request_cooldown_started_at is None
-            ):
+            if command.strip().casefold() == "remote scan group" and self._request_cooldown_started_at is None:
                 self._request_cooldown_started_at = time.monotonic()
                 self._request_timer_is_advisory = True
             if is_request:
                 self._pending_request_mesh = (
-                    normalize_mesh_id(request_match.group("mesh"))
-                    if request_match is not None
-                    else "*"
+                    normalize_mesh_id(request_match.group("mesh")) if request_match is not None else "*"
                 )
 
     async def send_forced_request(self, mesh_id: str) -> None:

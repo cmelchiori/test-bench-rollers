@@ -9,7 +9,13 @@ import re
 import time
 from typing import Any
 
-from .serial_gateway import SerialGateway, decode_telemetry, link_result, mac_result, normalize_mesh_id
+from .serial_gateway import (
+    SerialGateway,
+    decode_telemetry,
+    link_result,
+    mac_result,
+    normalize_mesh_id,
+)
 from .state_machine import BenchEvent, BenchSession, BenchState
 
 HARDWARE_ALERT_TEMP_C = 160
@@ -52,17 +58,12 @@ def evaluate(
         for index, value in enumerate(valid_temperatures, start=1):
             if value > HARDWARE_ALERT_TEMP_C:
                 failures.append(
-                    f"Temperatura {index} sobre el límite crítico de hardware "
-                    f"({value:g} > {HARDWARE_ALERT_TEMP_C} °C)"
+                    f"Temperatura {index} sobre el límite crítico de hardware ({value:g} > {HARDWARE_ALERT_TEMP_C} °C)"
                 )
             if temperature_min is not None and value < temperature_min:
-                failures.append(
-                    f"Temperatura {index} bajo el mínimo configurado ({value:g} < {temperature_min:g})"
-                )
+                failures.append(f"Temperatura {index} bajo el mínimo configurado ({value:g} < {temperature_min:g})")
             if temperature_max is not None and value > temperature_max:
-                failures.append(
-                    f"Temperatura {index} sobre el máximo configurado ({value:g} > {temperature_max:g})"
-                )
+                failures.append(f"Temperatura {index} sobre el máximo configurado ({value:g} > {temperature_max:g})")
 
     alarms = metrics.get("alarms")
     if isinstance(alarms, dict):
@@ -264,7 +265,11 @@ async def _run_terminal(args: argparse.Namespace) -> None:
             try:
                 await _run_attempt(gateway, args, session)
             except (OSError, ValueError, RuntimeError) as exc:
-                if session.state not in {BenchState.ERROR, BenchState.PASSED, BenchState.FAILED}:
+                if session.state not in {
+                    BenchState.ERROR,
+                    BenchState.PASSED,
+                    BenchState.FAILED,
+                }:
                     session.dispatch(BenchEvent.ERROR, detail=str(exc))
             if session.state is BenchState.ERROR:
                 show_status(session)
@@ -324,7 +329,9 @@ def main() -> None:
     parser.add_argument("--port", required=True, help="Puerto serial, por ejemplo /dev/ttyUSB0")
     parser.add_argument("--ui", choices=("tui", "cli"), default="tui", help="Interfaz de terminal")
     parser.add_argument(
-        "--remote-port", type=int, default=8765,
+        "--remote-port",
+        type=int,
+        default=8765,
         help="Puerto local de la consola UART remota (solo loopback; acceso mediante SSH)",
     )
     parser.add_argument("--baudrate", type=int, default=115200)

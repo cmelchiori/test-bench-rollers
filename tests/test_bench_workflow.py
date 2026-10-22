@@ -6,11 +6,17 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from textual.widgets import Button, RichLog, Select, TabbedContent
+
 from test_bench_rollers.cli import _run_attempt, _send_unlink_group, evaluate
-from test_bench_rollers.serial_gateway import SerialGateway, decode_telemetry, link_result, mac_result
+from test_bench_rollers.serial_gateway import (
+    SerialGateway,
+    decode_telemetry,
+    link_result,
+    mac_result,
+)
 from test_bench_rollers.state_machine import BenchEvent, BenchSession, BenchState
 from test_bench_rollers.tui import BenchTuiApp
-from textual.widgets import Button, RichLog, Select, TabbedContent
 
 
 class BenchStateMachineTests(unittest.TestCase):
@@ -213,20 +219,32 @@ class TerminalFlowTests(unittest.IsolatedAsyncioTestCase):
 
 
 class TuiTests(unittest.IsolatedAsyncioTestCase):
-    async def test_remote_client_locks_local_actions_sends_uart_and_unlocks_on_disconnect(self) -> None:
+    async def test_remote_client_locks_local_actions_sends_uart_and_unlocks_on_disconnect(
+        self,
+    ) -> None:
         class FakeGateway:
             def __init__(self, _port: str, _baudrate: int) -> None:
                 self.commands: list[str] = []
                 self.subscribers: set[asyncio.Queue[str]] = set()
-            async def __aenter__(self): return self
-            async def __aexit__(self, *_args: object) -> None: return None
-            async def send(self, command: str) -> None: self.commands.append(command)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def send(self, command: str) -> None:
+                self.commands.append(command)
+
             async def messages(self, _timeout: float):
-                if False: yield ""
+                if False:
+                    yield ""
+
             def subscribe(self):
                 queue: asyncio.Queue[str] = asyncio.Queue()
                 self.subscribers.add(queue)
                 return queue
+
             def unsubscribe(self, queue: asyncio.Queue[str]) -> None:
                 self.subscribers.discard(queue)
 
@@ -311,9 +329,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             async def messages(self, _timeout: float):
                 yield "<0x0399> [UNLINK] Unlinked OK"
 
-        args = SimpleNamespace(
-            port="fake-port", baudrate=115200, unlink_listen_seconds=0.01
-        )
+        args = SimpleNamespace(port="fake-port", baudrate=115200, unlink_listen_seconds=0.01)
         app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
@@ -440,8 +456,12 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                 self.commands: list[str] = []
                 self.responses: list[str] = []
 
-            async def __aenter__(self): return self
-            async def __aexit__(self, *_args: object) -> None: return None
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
             async def send(self, command: str) -> None:
                 self.commands.append(command)
                 self.responses = {
@@ -450,15 +470,25 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                     "remote link 0x0398": ["<0x0398> [LINK] Linked OK"],
                     "remote request 0x0398": [f"<0x0398> [DATA]: {data}"],
                 }.get(command, [])
+
             async def messages(self, _timeout: float):
                 responses, self.responses = self.responses, []
                 for response in responses:
                     yield response
 
-        args = SimpleNamespace(port="fake", baudrate=115200, scan_seconds=0.01,
-            identify_timeout=0.01, link_timeout=0.01, link_settle_seconds=0,
-            response_timeout=0.01, rpm_min=100, rpm_max=3000,
-            temperature_min=0, temperature_max=80)
+        args = SimpleNamespace(
+            port="fake",
+            baudrate=115200,
+            scan_seconds=0.01,
+            identify_timeout=0.01,
+            link_timeout=0.01,
+            link_settle_seconds=0,
+            response_timeout=0.01,
+            rpm_min=100,
+            rpm_max=3000,
+            temperature_min=0,
+            temperature_max=80,
+        )
         app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
@@ -480,29 +510,56 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.session.selected_node, "0x0398")
 
     async def test_identity_retry_only_sends_missing_mac_query(self) -> None:
-        payload = {"schema": "roller-data-1.0", "tags": {"device_id": "roller-01"},
-                   "fields": {"rpm": 500, "temperature": [25], "alarms": {"latched": {"all": 0}}}}
+        payload = {
+            "schema": "roller-data-1.0",
+            "tags": {"device_id": "roller-01"},
+            "fields": {
+                "rpm": 500,
+                "temperature": [25],
+                "alarms": {"latched": {"all": 0}},
+            },
+        }
 
         class FakeGateway:
             def __init__(self, _port: str, _baudrate: int) -> None:
                 self.commands: list[str] = []
                 self.mac_replies = 0
-            async def __aenter__(self): return self
-            async def __aexit__(self, *_args: object) -> None: return None
-            async def send(self, command: str) -> None: self.commands.append(command)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def send(self, command: str) -> None:
+                self.commands.append(command)
+
             async def messages(self, _timeout: float):
                 command = self.commands[-1]
-                if command == "remote scan group": yield "<0x0399> [SCAN] Hi"
+                if command == "remote scan group":
+                    yield "<0x0399> [SCAN] Hi"
                 elif command == "remote identify 0x0399":
                     self.mac_replies += 1
-                    if self.mac_replies > 1: yield "<0x0399> [MAC] aa:bb:cc:dd:ee:ff"
-                elif command == "remote link 0x0399": yield "<0x0399> [LINK] Linked OK"
-                elif command == "remote request 0x0399": yield "<0x0399> [DATA]: fake"
+                    if self.mac_replies > 1:
+                        yield "<0x0399> [MAC] aa:bb:cc:dd:ee:ff"
+                elif command == "remote link 0x0399":
+                    yield "<0x0399> [LINK] Linked OK"
+                elif command == "remote request 0x0399":
+                    yield "<0x0399> [DATA]: fake"
 
-        args = SimpleNamespace(port="fake", baudrate=115200, scan_seconds=0.01,
-            identify_timeout=0.01, link_timeout=0.01, link_settle_seconds=0,
-            response_timeout=0.01, rpm_min=100, rpm_max=3000,
-            temperature_min=0, temperature_max=80)
+        args = SimpleNamespace(
+            port="fake",
+            baudrate=115200,
+            scan_seconds=0.01,
+            identify_timeout=0.01,
+            link_timeout=0.01,
+            link_settle_seconds=0,
+            response_timeout=0.01,
+            rpm_min=100,
+            rpm_max=3000,
+            temperature_min=0,
+            temperature_max=80,
+        )
         with patch("test_bench_rollers.tui.decode_telemetry", return_value=("0x0399", payload)):
             app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
             async with app.run_test(size=(120, 40)) as pilot:
@@ -510,30 +567,60 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click("#scan")
                 for _ in range(30):
                     await pilot.pause(0.02)
-                    if app.session.state is BenchState.IDENTITY_PENDING: break
+                    if app.session.state is BenchState.IDENTITY_PENDING:
+                        break
                 self.assertIs(app.session.state, BenchState.IDENTITY_PENDING)
                 await app._retry_identity()
                 self.assertIs(app.session.state, BenchState.PASSED)
-                self.assertEqual(app.gateway.commands, [  # type: ignore[union-attr]
-                    "remote scan group", "remote identify 0x0399", "remote link 0x0399",
-                    "remote request 0x0399", "remote identify 0x0399",
-                ])
+                self.assertEqual(
+                    app.gateway.commands,
+                    [  # type: ignore[union-attr]
+                        "remote scan group",
+                        "remote identify 0x0399",
+                        "remote link 0x0399",
+                        "remote request 0x0399",
+                        "remote identify 0x0399",
+                    ],
+                )
 
-    async def test_identity_retry_only_requests_telemetry_when_device_id_is_missing(self) -> None:
-        payload = {"schema": "roller-data-1.0", "tags": {"device_id": "roller-01"},
-                   "fields": {"rpm": 500, "temperature": [25], "alarms": {"latched": {"all": 0}}}}
+    async def test_identity_retry_only_requests_telemetry_when_device_id_is_missing(
+        self,
+    ) -> None:
+        payload = {
+            "schema": "roller-data-1.0",
+            "tags": {"device_id": "roller-01"},
+            "fields": {
+                "rpm": 500,
+                "temperature": [25],
+                "alarms": {"latched": {"all": 0}},
+            },
+        }
 
         class FakeGateway:
             def __init__(self, _port: str, _baudrate: int) -> None:
                 self.commands: list[str] = []
-            async def __aenter__(self): return self
-            async def __aexit__(self, *_args: object) -> None: return None
-            async def send(self, command: str) -> None: self.commands.append(command)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def send(self, command: str) -> None:
+                self.commands.append(command)
+
             async def messages(self, _timeout: float):
                 yield "<0x0399> [DATA]: fake"
 
-        args = SimpleNamespace(port="fake", baudrate=115200, response_timeout=0.01,
-            rpm_min=100, rpm_max=3000, temperature_min=0, temperature_max=80)
+        args = SimpleNamespace(
+            port="fake",
+            baudrate=115200,
+            response_timeout=0.01,
+            rpm_min=100,
+            rpm_max=3000,
+            temperature_min=0,
+            temperature_max=80,
+        )
         with patch("test_bench_rollers.tui.decode_telemetry", return_value=("0x0399", payload)):
             app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
             async with app.run_test(size=(120, 40)) as pilot:

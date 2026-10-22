@@ -3,6 +3,21 @@
 Aplicación de terminal para probar nodos roller mediante el protocolo serial del
 gateway Mesh.
 
+## Hooks de Git
+
+Instala [pre-commit](https://pre-commit.com/) y activa los hooks del repositorio:
+
+```bash
+uv tool install pre-commit
+pre-commit install
+```
+
+Para ejecutarlos manualmente en todos los archivos:
+
+```bash
+pre-commit run --all-files
+```
+
 ## Ejecución
 
 ```bash

@@ -75,7 +75,9 @@ class RemoteConsoleTests(unittest.IsolatedAsyncioTestCase):
         self.writer.write((json.dumps(value) + "\n").encode())
         await self.writer.drain()
 
-    async def test_console_takes_lock_sends_commands_and_releases_on_disconnect(self) -> None:
+    async def test_console_takes_lock_sends_commands_and_releases_on_disconnect(
+        self,
+    ) -> None:
         connected = await self.event()
         self.assertEqual(connected["type"], "connected")
         await self.send({"type": "acquire"})
@@ -128,7 +130,9 @@ class RemoteConsoleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.gateway.commands, ["remote unlink group"])
         self.assertEqual(self.confirmed_commands, ["remote unlink group"])
 
-    async def test_disconnect_cancels_pending_unlink_confirmation_and_releases_lock(self) -> None:
+    async def test_disconnect_cancels_pending_unlink_confirmation_and_releases_lock(
+        self,
+    ) -> None:
         confirmation_started = asyncio.Event()
         confirmation_cancelled = asyncio.Event()
 
