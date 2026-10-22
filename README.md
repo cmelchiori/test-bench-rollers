@@ -79,7 +79,7 @@ conserva la lista de nodos detectados y permite iniciar otra prueba.
 
 ## Consola remota UART
 
-La TUI mantiene disponible una consola remota local en `127.0.0.1:8765`. El
+La TUI mantiene disponible una consola remota en `127.0.0.1:8765` por defecto. El
 servicio sigue siendo el único proceso que abre el UART y distribuye las líneas
 RX a la operación local y a la consola remota. La consola remota observa RX y
 los mensajes de depuración mientras corre una prueba. Si se conecta cuando el
@@ -89,27 +89,35 @@ banco está ocupado, la consola queda en observación y puede pedir control con
 `:take` cuando termine la operación. `:release` devuelve el UART al panel y
 `:exit` cierra la sesión.
 
-El puerto escucha solo en loopback; no lo publiques directamente en la red.
-Para usarlo desde un equipo de soporte, crea un túnel SSH hacia la Raspberry:
+Para conectarte directamente por Tailscale, inicia el banco escuchando en la
+IP Tailscale de la Raspberry. Por ejemplo:
 
 ```bash
-ssh -L 8765:127.0.0.1:8765 pi@raspberry
+uv run test-bench-rollers --port /dev/serial0 --remote-host 100.114.144.125 --remote-port 8765
 ```
 
-Luego, en otra terminal del equipo remoto:
+Desde el otro equipo de la tailnet, inicia la consola apuntando a esa misma IP:
 
 ```bash
-uv run test-bench-remote
+uv run test-bench-remote --host 100.114.144.125 --port 8765
 ```
+
+El servicio acepta como dirección de escucha loopback o una IPv4 de Tailscale
+(`100.64.0.0/10`), y rechaza interfaces públicas o de la LAN. La política ACL
+de Tailscale debe limitar qué dispositivos pueden acceder al puerto 8765. Si
+prefieres dejar el servicio en loopback, también puedes entrar mediante un
+túnel SSH (`ssh -L 8765:127.0.0.1:8765 pi@raspberry`) y conectar el cliente a
+`127.0.0.1:8765`.
 
 El cliente abre una TUI con estado del banco, bloqueo, registro en vivo RX/TX y
 un campo para comandos. Se conecta en modo observación y solicita tomar el
 control automáticamente; si el banco está ocupado, usa `TOMAR CONTROL UART`
 cuando termine la prueba. `LIBERAR UART` devuelve el control al panel. Escribe
-comandos del gateway como `remote scan group`; `remote unlink group` vuelve a
-pedir confirmación en la pantalla local. Si hace falta otro puerto local en el túnel, usa
+comandos del gateway como `remote scan group`; `remote unlink group` pide
+confirmación en la consola remota antes de enviar el comando. Si hace falta otro
+puerto local en el túnel, usa
 `test-bench-remote --port <puerto-local>`. El puerto del servicio se cambia con
-`--remote-port`.
+`--remote-port`. La dirección de escucha se cambia con `--remote-host`.
 
 Los rangos configurables de RPM y temperatura no tienen valores predeterminados
 porque deben definirse para el proceso de calidad. Además, se mantiene el límite

@@ -1,20 +1,31 @@
-"""Loopback JSON-lines server for remote UART access."""
+"""Loopback or Tailscale-bound JSON-lines server for remote UART access."""
 
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .serial_gateway import SerialGateway
+from .serial_gateway import REQUEST_COMMAND_RE, SerialGateway
 
 
 StatusProvider = Callable[[], dict[str, Any]]
 Acquire = Callable[[str], Awaitable[bool]]
 Release = Callable[[str], Awaitable[None]]
-CommandConfirm = Callable[[str], Awaitable[bool]]
 Log = Callable[[str], None]
+TAILSCALE_IPV4 = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _is_allowed_bind_host(host: str) -> bool:
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address in TAILSCALE_IPV4
 
 
 class RemoteConsoleServer:
@@ -28,19 +39,17 @@ class RemoteConsoleServer:
         status_provider: StatusProvider,
         acquire: Acquire,
         release: Release,
-        confirm_command: CommandConfirm,
         log: Log,
         host: str = "127.0.0.1",
     ) -> None:
-        if host not in {"127.0.0.1", "::1", "localhost"}:
-            raise ValueError("La consola remota solo puede escuchar en loopback; usa SSH para acceso remoto")
+        if not _is_allowed_bind_host(host):
+            raise ValueError("La consola remota solo puede escuchar en loopback o en una IP IPv4 de Tailscale")
         self.host = host
         self.port = port
         self.gateway_provider = gateway_provider
         self.status_provider = status_provider
         self.acquire = acquire
         self.release = release
-        self.confirm_command = confirm_command
         self.log = log
         self.server: asyncio.AbstractServer | None = None
         self._active_writer: asyncio.StreamWriter | None = None
@@ -235,42 +244,24 @@ class RemoteConsoleServer:
                     )
                     continue
                 command = command.strip()
-                if command.casefold() == "remote unlink group":
-                    confirmation = asyncio.create_task(self.confirm_command(command))
-                    done, _ = await asyncio.wait({confirmation, line_task}, return_when=asyncio.FIRST_COMPLETED)
-                    if line_task in done:
-                        pending_raw = line_task.result()
-                        line_task = asyncio.create_task(reader.readline())
-                        confirmation.cancel()
-                        try:
-                            await confirmation
-                        except asyncio.CancelledError:
-                            pass
-                        if not pending_raw:
-                            break
-                        await self._send(
-                            writer,
-                            {
-                                "type": "error",
-                                "message": "Unlink Group cancelado; llegó otro mensaje antes de la confirmación local",
-                            },
-                        )
-                        continue
-                    if not confirmation.result():
-                        await self._send(
-                            writer,
-                            {
-                                "type": "error",
-                                "message": "Unlink Group cancelado por el operador",
-                            },
-                        )
-                        continue
                 current_gateway = self.gateway_provider()
                 if current_gateway is None:
                     await self._send(writer, {"type": "error", "message": "UART desconectado"})
                     continue
                 try:
-                    await current_gateway.send(command)
+                    request_match = REQUEST_COMMAND_RE.fullmatch(command)
+                    cooldown_check = getattr(current_gateway, "request_cooldown_remaining", None)
+                    advisory_check = getattr(current_gateway, "request_cooldown_is_advisory", None)
+                    cooldown = float(cooldown_check()) if callable(cooldown_check) else 0.0
+                    advisory = bool(advisory_check()) if callable(advisory_check) else False
+                    if request_match and cooldown > 0 and not advisory:
+                        send_forced = getattr(current_gateway, "send_forced_request", None)
+                        if callable(send_forced):
+                            await send_forced(request_match.group("mesh"))
+                        else:
+                            await current_gateway.send(command, force=True)
+                    else:
+                        await current_gateway.send(command)
                 except RuntimeError as exc:
                     await self._send(writer, {"type": "error", "message": str(exc)})
                     continue

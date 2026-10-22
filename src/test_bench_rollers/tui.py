@@ -62,16 +62,16 @@ class BenchTuiApp(BenchTuiViews, App[None]):
         try:
             self.remote_console = RemoteConsoleServer(
                 port=getattr(self.args, "remote_port", 8765),
+                host=getattr(self.args, "remote_host", "127.0.0.1"),
                 gateway_provider=lambda: self.gateway,
                 status_provider=self._remote_status,
                 acquire=self._acquire_remote,
                 release=self._release_remote,
-                confirm_command=self._confirm_remote_command,
                 log=self._log,
             )
             await self.remote_console.start()
             self.query_one("#remote-status", Static).update(
-                f"REMOTE · 127.0.0.1:{self.remote_console.bound_port} · SSH"
+                f"REMOTE · {self.remote_console.host}:{self.remote_console.bound_port}"
             )
         except (OSError, ValueError) as exc:
             self.query_one("#remote-status", Static).update(f"REMOTE · no disponible: {exc}")
@@ -507,27 +507,13 @@ class BenchTuiApp(BenchTuiViews, App[None]):
             if self.remote_console is not None
             else getattr(self.args, "remote_port", 8765)
         )
-        self.query_one("#remote-status", Static).update(f"REMOTE · 127.0.0.1:{port} · SSH")
+        host = (
+            self.remote_console.host
+            if self.remote_console is not None
+            else getattr(self.args, "remote_host", "127.0.0.1")
+        )
+        self.query_one("#remote-status", Static).update(f"REMOTE · {host}:{port}")
         self._refresh_status()
-
-    async def _confirm_remote_command(self, command: str) -> bool:
-        if command.casefold() != "remote unlink group":
-            return True
-        loop = asyncio.get_running_loop()
-        confirmed: asyncio.Future[bool] = loop.create_future()
-
-        def finish(result: bool | None) -> None:
-            if not confirmed.done():
-                confirmed.set_result(bool(result))
-
-        self.push_screen(ConfirmUnlinkScreen(), callback=finish)
-        try:
-            return await asyncio.wait_for(confirmed, timeout=60)
-        except TimeoutError:
-            return False
-        finally:
-            if isinstance(self.screen, ConfirmUnlinkScreen):
-                self.pop_screen()
 
 
 def run_tui(args: argparse.Namespace) -> None:

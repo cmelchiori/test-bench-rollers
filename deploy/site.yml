@@ -10,6 +10,7 @@
     serial_port: /dev/serial0
     serial_baudrate: 115200
     remote_console_port: 8765
+    remote_console_host: "{{ ansible_host | default('127.0.0.1') }}"
     python_version: "3.13"
     uv_bin: /usr/local/bin/uv
 

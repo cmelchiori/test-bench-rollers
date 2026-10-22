@@ -7,8 +7,9 @@ una ventana de terminal de pantalla completa del escritorio local. Instala
 libera `serial0` de la consola de login y lo usa como puerto de la aplicación.
 Estos cambios de arranque reinician la Raspberry durante el despliegue. El
 usuario `pi` debe tener una sesión gráfica activa y permisos de `sudo`. El
-servicio usa `/dev/serial0` por defecto y el puerto UART remoto escucha solo en loopback
-(`127.0.0.1:8765`), accesible mediante un túnel SSH.
+servicio usa `/dev/serial0` por defecto y escucha en la IP de inventario de la
+Raspberry por el puerto UART remoto 8765. Usa una IP Tailscale en el inventario
+para habilitar acceso directo dentro de la tailnet.
 
 ## Requisitos del equipo de despliegue
 
@@ -59,11 +60,12 @@ sudo systemctl status test-bench-rollers
 sudo journalctl -u test-bench-rollers -f
 ```
 
-Para abrir la consola UART remota desde otro equipo, crea un túnel:
+Para abrir la consola UART remota desde otro equipo de la tailnet:
 
 ```bash
-ssh -L 8765:127.0.0.1:8765 pi@100.114.144.125
+uv run test-bench-remote --host 100.114.144.125 --port 8765
 ```
 
-Luego ejecuta `uv run test-bench-remote` en el equipo local. No expongas el
-puerto 8765 directamente a la red.
+El servicio se liga exclusivamente a esa IP Tailscale; no usa `0.0.0.0` ni se
+expone a la LAN. La ACL de Tailscale debe restringir qué dispositivos pueden
+acceder al puerto 8765.

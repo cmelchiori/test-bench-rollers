@@ -70,7 +70,12 @@ def main() -> None:
         "--remote-port",
         type=int,
         default=8765,
-        help="Puerto local de la consola UART remota (solo loopback; acceso mediante SSH)",
+        help="Puerto de la consola UART remota (8765 por defecto)",
+    )
+    parser.add_argument(
+        "--remote-host",
+        default="127.0.0.1",
+        help="Dirección de escucha: loopback o IP Tailscale local",
     )
     parser.add_argument("--baudrate", type=int, default=115200)
     parser.add_argument("--scan-seconds", type=_positive, default=8.0)

@@ -84,7 +84,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
 
         args = SimpleNamespace(port="fake-port", baudrate=115200, remote_port=0)
         app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with app.run_test(size=(120, 40)):
             await asyncio.sleep(0.05)
             reader, writer = await asyncio.open_connection("127.0.0.1", app.remote_console.bound_port)  # type: ignore[union-attr]
             writer.write(b'{"type":"hello","client":"qa"}\n{"type":"acquire"}\n')
@@ -106,14 +106,9 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
 
             writer.write(b'{"type":"command","command":"remote unlink group"}\n')
             await writer.drain()
-            for _ in range(30):
-                await pilot.pause(0.01)
-                if app.screen.query("#cancel-unlink"):
-                    break
-            self.assertTrue(app.screen.query("#cancel-unlink"))
-            await pilot.click("#cancel-unlink")
-            await wait_for_event("error")
-            self.assertEqual(app.gateway.commands, ["remote scan group"])  # type: ignore[union-attr]
+            await wait_for_event("sent")
+            self.assertFalse(app.screen.query("#cancel-unlink"))
+            self.assertEqual(app.gateway.commands, ["remote scan group", "remote unlink group"])  # type: ignore[union-attr]
 
             writer.close()
             await writer.wait_closed()

@@ -15,6 +15,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Header, Input, RichLog, Static
 
 from .remote_server import RemoteConsoleServer
+from .tui_views import ConfirmUnlinkScreen
 
 __all__ = ["RemoteConsoleApp", "RemoteConsoleServer", "remote_main"]
 
@@ -27,21 +28,25 @@ class RemoteConsoleApp(App[None]):
     BINDINGS = [("ctrl+c", "quit", "Salir")]
     CSS = """
     Screen { layout: vertical; background: $background; }
-    #remote-root { height: 1fr; padding: 1 2; }
-    #status-row { height: 5; margin-bottom: 1; }
-    #connection-status { width: 1fr; height: 4; padding: 1 2; border: round $primary-darken-1; background: $surface; content-align: left middle; }
-    #control-status { width: 1fr; height: 4; padding: 1 2; margin-left: 1; border: round $primary-darken-1; background: $surface; content-align: left middle; text-style: bold; }
+    #remote-root { height: 1fr; padding: 0 1; }
+    #status-row { height: 4; margin-bottom: 1; }
+    #connection-status { width: 1fr; height: 3; padding: 0 1; border: round $primary-darken-1; background: $surface; content-align: left middle; }
+    #connection-status.connection-online { color: $success; border: round $success-darken-1; }
+    #connection-status.connection-offline { color: $error; border: round $error; }
+    #control-status { width: 1fr; height: 3; padding: 0 1; margin-left: 1; border: round $primary-darken-1; background: $surface; content-align: left middle; text-style: bold; }
     #control-status.control-active { color: $error; border: round $error; background: $error 15%; }
     #control-status.control-observe { color: $success; border: round $success-darken-1; }
-    #bench-status { height: 3; padding: 0 1; color: $text-muted; }
-    #control-row { height: 5; margin-bottom: 1; }
-    #control-row Button { width: 1fr; height: 4; margin-right: 1; text-style: bold; }
-    #log-title { height: 2; content-align: left middle; text-style: bold; color: $accent; }
-    #remote-log { height: 1fr; min-height: 8; border: round $primary-darken-1; background: $surface; padding: 0 1; }
-    #command-row { height: 5; margin-top: 1; }
-    #command { width: 1fr; height: 4; margin-right: 1; }
-    #send-command { width: 20; height: 4; text-style: bold; }
-    #help { height: 2; color: $text-muted; content-align: left middle; }
+    #bench-status { height: 2; padding: 0 1; color: $text; border-left: heavy $accent; }
+    #control-row { height: 3; margin-bottom: 1; }
+    #control-row Button { width: 1fr; height: 3; margin-right: 1; text-style: bold; }
+    #quick-row { height: 3; }
+    #quick-row Button { width: 1fr; height: 3; margin-right: 1; }
+    #log-title { height: 1; content-align: left middle; text-style: bold; color: $accent; }
+    #remote-log { height: 1fr; min-height: 3; border: round $primary-darken-1; background: $surface; padding: 0 1; }
+    #command-row { height: 3; margin-top: 1; }
+    #command { width: 1fr; height: 3; margin-right: 1; }
+    #send-command { width: 20; height: 3; text-style: bold; }
+    #help { height: 1; color: $text-muted; content-align: left middle; }
     """
 
     def __init__(self, host: str, port: int) -> None:
@@ -75,6 +80,10 @@ class RemoteConsoleApp(App[None]):
                 )
                 yield Button("CONECTAR", id="connect", variant="primary")
                 yield Button("SALIR", id="quit", variant="error")
+            with Horizontal(id="quick-row"):
+                yield Button("ESCANEAR GRUPO", id="quick-scan", variant="primary", disabled=True)
+                yield Button("UNLINK GROUP", id="quick-unlink", variant="warning", disabled=True)
+                yield Button("LIMPIAR REGISTRO", id="clear-log", disabled=True)
             yield Static("TRÁFICO UART · MENSAJES EN TIEMPO REAL", id="log-title")
             yield RichLog(id="remote-log", wrap=True, markup=False, max_lines=2000)
             with Horizontal(id="command-row"):
@@ -85,7 +94,7 @@ class RemoteConsoleApp(App[None]):
                 )
                 yield Button("ENVIAR", id="send-command", variant="primary", disabled=True)
             yield Static(
-                "Al tomar el control se bloquean las pruebas locales. :take / :release también están disponibles.",
+                "Atajos: :scan :unlink :take :release · El control remoto bloquea el banco local.",
                 id="help",
             )
         yield Footer()
@@ -111,6 +120,8 @@ class RemoteConsoleApp(App[None]):
             await self._send({"type": "acquire"})
             self.connected = True
             self.query_one("#connection-status", Static).update(f"Conectado a {self.host}:{self.port}")
+            self.query_one("#connection-status", Static).set_class(True, "connection-online")
+            self.query_one("#connection-status", Static).set_class(False, "connection-offline")
             self.query_one("#connect", Button).disabled = True
             self.query_one("#take-control", Button).disabled = False
             self.query_one("#bench-status", Static).update("Estado del banco: recibiendo diagnóstico…")
@@ -121,6 +132,8 @@ class RemoteConsoleApp(App[None]):
             self.connected = False
             if self.is_mounted:
                 self.query_one("#connection-status", Static).update(f"Sin conexión: {exc}")
+                self.query_one("#connection-status", Static).set_class(False, "connection-online")
+                self.query_one("#connection-status", Static).set_class(True, "connection-offline")
                 self.query_one("#control-status", Static).update("DESCONECTADO")
                 self._set_control_style(active=False)
                 self.query_one("#connect", Button).disabled = False
@@ -152,13 +165,13 @@ class RemoteConsoleApp(App[None]):
                 self._update_status(event.get("status", {}))
             elif kind == "control-granted":
                 self.has_control = True
-                self.query_one("#control-status", Static).update("CONTROL UART ACTIVO · PRUEBAS BLOQUEADAS")
+                self.query_one("#control-status", Static).update("CONTROL UART ACTIVO")
                 self._set_control_style(active=True)
                 self._log(f"CONTROL · {event.get('message', '')}")
                 self._sync_controls()
             elif kind == "control-denied":
                 self.has_control = False
-                self.query_one("#control-status", Static).update("OBSERVACIÓN · CONTROL NO DISPONIBLE")
+                self.query_one("#control-status", Static).update("OBSERVACIÓN")
                 self._set_control_style(active=False)
                 self._log(f"AVISO · {event.get('message', '')}")
                 self._sync_controls()
@@ -170,13 +183,16 @@ class RemoteConsoleApp(App[None]):
                 self._log(f"TX  {event.get('command', '')}")
             elif kind == "released":
                 self.has_control = False
-                self.query_one("#control-status", Static).update("OBSERVACIÓN · UART LIBRE")
+                self.query_one("#control-status", Static).update("UART LIBRE")
                 self._set_control_style(active=False)
                 self._log(f"CONTROL · {event.get('message', '')}")
                 self._sync_controls()
             elif kind == "error":
                 self._log(f"ERROR · {event.get('message', '')}")
         self._log("Conexión cerrada por el servicio.")
+        self.query_one("#connection-status", Static).update("Conexión cerrada por el servicio")
+        self.query_one("#connection-status", Static).set_class(False, "connection-online")
+        self.query_one("#connection-status", Static).set_class(True, "connection-offline")
 
     async def _send(self, message: dict[str, str]) -> None:
         if self.writer is None or self.writer.is_closing():
@@ -188,6 +204,8 @@ class RemoteConsoleApp(App[None]):
         if not isinstance(status, dict):
             return
         state = status.get("state", "—")
+        if isinstance(state, str):
+            state = state.replace("_", " ")
         busy = "ocupado" if status.get("busy") else "libre"
         node = status.get("node") or "sin nodo seleccionado"
         result = status.get("result") or "sin resultado"
@@ -195,7 +213,7 @@ class RemoteConsoleApp(App[None]):
             f"Banco: {state} · Operación {busy} · Nodo: {node} · Resultado: {result}"
         )
         if status.get("remote_locked"):
-            self.query_one("#control-status", Static).update("CONTROL UART ACTIVO · PRUEBAS BLOQUEADAS")
+            self.query_one("#control-status", Static).update("CONTROL UART ACTIVO")
             self._set_control_style(active=True)
 
     def _sync_controls(self) -> None:
@@ -204,10 +222,15 @@ class RemoteConsoleApp(App[None]):
         self.query_one("#release-control", Button).disabled = not self.connected or not self.has_control
         self.query_one("#command", Input).disabled = not self.connected or not self.has_control
         self.query_one("#send-command", Button).disabled = not self.connected or not self.has_control
+        for button_id in ("#quick-scan", "#quick-unlink"):
+            self.query_one(button_id, Button).disabled = not self.connected or not self.has_control
+        self.query_one("#clear-log", Button).disabled = not self.connected
 
     def _log(self, message: str) -> None:
         upper = message.upper()
         style = "bright_cyan" if upper.startswith("RX ") or " RX " in upper else "green"
+        if upper.startswith("TX ") or " TX " in upper:
+            style = "bright_green"
         if "ERROR" in upper:
             style = "bold red"
         elif "CONTROL" in upper or "AVISO" in upper:
@@ -244,6 +267,12 @@ class RemoteConsoleApp(App[None]):
             )
         elif event.button.id == "send-command":
             self._submit_command()
+        elif event.button.id == "quick-scan":
+            self._send_command("remote scan group")
+        elif event.button.id == "quick-unlink":
+            self._request_unlink_confirmation()
+        elif event.button.id == "clear-log":
+            self.query_one("#remote-log", RichLog).clear()
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         self._submit_command()
@@ -265,15 +294,30 @@ class RemoteConsoleApp(App[None]):
                 name="release-control",
                 exit_on_error=False,
             )
+        elif value.casefold() in {":scan", "remote scan group"}:
+            self._send_command("remote scan group")
+        elif value.casefold() in {":unlink", "remote unlink group"}:
+            self._request_unlink_confirmation()
         else:
-            if value.casefold() == "remote unlink group":
-                self._log("AVISO · Esperando confirmación en la pantalla local…")
-            self.run_worker(
-                self._send({"type": "command", "command": value}),
-                name="send-command",
-                exit_on_error=False,
-            )
+            self._send_command(value)
         command.value = ""
+
+    def _request_unlink_confirmation(self) -> None:
+        self._log("AVISO · Confirma el unlink para enviarlo a toda la red Mesh.")
+        self.push_screen(ConfirmUnlinkScreen(), callback=self._unlink_confirmation_result)
+
+    def _unlink_confirmation_result(self, confirmed: bool | None) -> None:
+        if confirmed:
+            self._send_command("remote unlink group")
+        else:
+            self._log("AVISO · Unlink cancelado; no se envió el comando.")
+
+    def _send_command(self, command: str) -> None:
+        self.run_worker(
+            self._send({"type": "command", "command": command}),
+            name="send-command",
+            exit_on_error=False,
+        )
 
 
 def remote_main() -> None:
