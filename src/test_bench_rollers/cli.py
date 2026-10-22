@@ -78,7 +78,7 @@ def main() -> None:
         help="Dirección de escucha: loopback o IP Tailscale local",
     )
     parser.add_argument("--baudrate", type=int, default=115200)
-    parser.add_argument("--scan-seconds", type=_positive, default=8.0)
+    parser.add_argument("--scan-seconds", type=_positive, default=3.0)
     parser.add_argument("--link-timeout", type=_positive, default=10.0)
     parser.add_argument("--identify-timeout", type=_positive, default=5.0)
     parser.add_argument("--link-settle-seconds", type=_non_negative, default=0.5)

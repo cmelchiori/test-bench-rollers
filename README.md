@@ -34,7 +34,8 @@ conserva los argumentos de puerto y límites.
 Opciones disponibles:
 
 - `--baudrate`: velocidad serial (115200 por defecto).
-- `--scan-seconds`: duración de la búsqueda (8 s por defecto).
+- `--scan-seconds`: duración de la búsqueda (3 s por defecto; aumenta este valor
+  si algunos nodos tardan en aparecer).
 - `--link-timeout`: espera máxima de confirmación `[LINK] linked` (10 s).
 - `--identify-timeout`: espera máxima de la respuesta MAC de `identify` (5 s).
 - `--link-settle-seconds`: pausa tras confirmar el vínculo (0.5 s).
