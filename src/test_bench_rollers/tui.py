@@ -471,7 +471,7 @@ class BenchTuiApp(BenchTuiViews, App[None]):
             self.query_one("#serial-log", RichLog).write(message)
         except NoMatches:
             pass
-        if self.remote_console is not None:
+        if self.remote_console is not None and not message.startswith("RX "):
             asyncio.create_task(self.remote_console.publish({"type": "log", "message": message}))
 
     def _begin_activity(self, label: str, seconds: float) -> None:

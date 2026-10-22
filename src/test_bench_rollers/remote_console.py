@@ -67,13 +67,13 @@ class RemoteConsoleApp(App[None]):
             yield Static("Estado del banco: esperando conexión", id="bench-status")
             with Horizontal(id="control-row"):
                 yield Button(
-                    "TOMAR CONTROL UART",
+                    "MODO ESCRITURA · TOMAR UART",
                     id="take-control",
                     variant="warning",
                     disabled=True,
                 )
                 yield Button(
-                    "LIBERAR UART",
+                    "MODO LECTURA · LIBERAR UART",
                     id="release-control",
                     variant="success",
                     disabled=True,
@@ -94,7 +94,7 @@ class RemoteConsoleApp(App[None]):
                 )
                 yield Button("ENVIAR", id="send-command", variant="primary", disabled=True)
             yield Static(
-                "Atajos: :scan :unlink :take :release · El control remoto bloquea el banco local.",
+                "Lectura: observa el diagnóstico · Escritura: toma el UART y bloquea operaciones locales.",
                 id="help",
             )
         yield Footer()
@@ -117,7 +117,6 @@ class RemoteConsoleApp(App[None]):
         try:
             self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
             await self._send({"type": "hello", "client": getpass.getuser()})
-            await self._send({"type": "acquire"})
             self.connected = True
             self.query_one("#connection-status", Static).update(f"Conectado a {self.host}:{self.port}")
             self.query_one("#connection-status", Static).set_class(True, "connection-online")
@@ -125,7 +124,7 @@ class RemoteConsoleApp(App[None]):
             self.query_one("#connect", Button).disabled = True
             self.query_one("#take-control", Button).disabled = False
             self.query_one("#bench-status", Static).update("Estado del banco: recibiendo diagnóstico…")
-            self._log("Sesión remota conectada; se solicitó control del UART.")
+            self._log("Sesión remota conectada en modo solo lectura.")
             await self._receive()
             self.query_one("#connection-status", Static).update("Conexión cerrada por el servicio")
         except (ConnectionError, OSError) as exc:
@@ -165,13 +164,13 @@ class RemoteConsoleApp(App[None]):
                 self._update_status(event.get("status", {}))
             elif kind == "control-granted":
                 self.has_control = True
-                self.query_one("#control-status", Static).update("CONTROL UART ACTIVO")
+                self.query_one("#control-status", Static).update("MODO ESCRITURA · UART ACTIVO")
                 self._set_control_style(active=True)
                 self._log(f"CONTROL · {event.get('message', '')}")
                 self._sync_controls()
             elif kind == "control-denied":
                 self.has_control = False
-                self.query_one("#control-status", Static).update("OBSERVACIÓN")
+                self.query_one("#control-status", Static).update("MODO SOLO LECTURA")
                 self._set_control_style(active=False)
                 self._log(f"AVISO · {event.get('message', '')}")
                 self._sync_controls()
@@ -183,7 +182,7 @@ class RemoteConsoleApp(App[None]):
                 self._log(f"TX  {event.get('command', '')}")
             elif kind == "released":
                 self.has_control = False
-                self.query_one("#control-status", Static).update("UART LIBRE")
+                self.query_one("#control-status", Static).update("MODO SOLO LECTURA")
                 self._set_control_style(active=False)
                 self._log(f"CONTROL · {event.get('message', '')}")
                 self._sync_controls()
@@ -213,8 +212,12 @@ class RemoteConsoleApp(App[None]):
             f"Banco: {state} · Operación {busy} · Nodo: {node} · Resultado: {result}"
         )
         if status.get("remote_locked"):
-            self.query_one("#control-status", Static).update("CONTROL UART ACTIVO")
+            self.query_one("#control-status", Static).update("MODO ESCRITURA · UART ACTIVO")
             self._set_control_style(active=True)
+        elif not self.has_control:
+            self.query_one("#control-status", Static).update("MODO SOLO LECTURA")
+            self._set_control_style(active=False)
+        self._sync_controls()
 
     def _sync_controls(self) -> None:
         self.query_one("#connect", Button).disabled = self.connected
@@ -313,6 +316,9 @@ class RemoteConsoleApp(App[None]):
             self._log("AVISO · Unlink cancelado; no se envió el comando.")
 
     def _send_command(self, command: str) -> None:
+        if not self.has_control:
+            self._log("AVISO · Toma el control para cambiar a modo escritura.")
+            return
         self.run_worker(
             self._send({"type": "command", "command": command}),
             name="send-command",
