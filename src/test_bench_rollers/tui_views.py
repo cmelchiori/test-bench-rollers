@@ -167,7 +167,9 @@ class BenchTuiViews:
         self._update_visible("scan-nodes", display)
 
     def _render_home_summary(self) -> None:
-        if self.session.result:
+        if self.session.state is BenchState.NO_NODES:
+            summary = "No se detectaron nodos. Puedes iniciar otra búsqueda cuando quieras."
+        elif self.session.result:
             summary = "Prueba completada. El resultado y sus detalles aparecen abajo."
         elif self.session.nodes:
             summary = f"{len(self.session.nodes)} nodo(s) detectado(s). Selecciona uno y solicita la prueba."

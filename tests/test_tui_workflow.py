@@ -6,13 +6,53 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from textual.widgets import Button, RichLog, Select, TabbedContent
+from textual.widgets import Button, RichLog, Select, Static, TabbedContent
 
 from test_bench_rollers.state_machine import BenchState
 from test_bench_rollers.tui import BenchTuiApp
 
 
 class TuiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_scan_has_explicit_status_and_can_be_retried(self) -> None:
+        class FakeGateway:
+            def __init__(self, _port: str, _baudrate: int) -> None:
+                self.scan_count = 0
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def send(self, command: str) -> None:
+                if command == "remote scan group":
+                    self.scan_count += 1
+
+            async def messages(self, _timeout: float):
+                if self.scan_count > 1:
+                    yield "<0x0399> [SCAN] Hi"
+
+        args = SimpleNamespace(port="fake", baudrate=115200, scan_seconds=0.01)
+        app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.click("#scan")
+            for _ in range(20):
+                await pilot.pause(0.02)
+                if app.session.state is BenchState.NO_NODES:
+                    break
+            self.assertIs(app.session.state, BenchState.NO_NODES)
+            self.assertIn("sin_nodos", app._status_text())
+            summary = app.query_one("#home-summary", Static).render()
+            self.assertIn("No se detectaron nodos", summary.plain)
+
+            await pilot.click("#scan")
+            for _ in range(20):
+                await pilot.pause(0.02)
+                if app.session.state is BenchState.SELECTING:
+                    break
+            self.assertIs(app.session.state, BenchState.SELECTING)
+
     async def test_remote_client_locks_local_actions_sends_uart_and_unlocks_on_disconnect(
         self,
     ) -> None:
@@ -360,7 +400,10 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             temperature_min=0,
             temperature_max=80,
         )
-        with patch("test_bench_rollers.tui.decode_telemetry", return_value=("0x0399", payload)):
+        with (
+            patch("test_bench_rollers.bench_workflow.decode_telemetry", return_value=("0x0399", payload)),
+            patch("test_bench_rollers.tui.decode_telemetry", return_value=("0x0399", payload)),
+        ):
             app = BenchTuiApp(args, gateway_factory=FakeGateway)  # type: ignore[arg-type]
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
@@ -375,7 +418,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.pause(0.02)
                     if app.session.state is BenchState.IDENTITY_PENDING:
                         break
-                self.assertIs(app.session.state, BenchState.IDENTITY_PENDING)
+                self.assertIs(app.session.state, BenchState.IDENTITY_PENDING, app.session.error)
                 await app._retry_identity()
                 self.assertIs(app.session.state, BenchState.PASSED)
                 self.assertEqual(

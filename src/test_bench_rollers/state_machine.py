@@ -11,6 +11,7 @@ class BenchState(StrEnum):
     IDLE = "inactivo"
     INITIALIZING = "inicializando"
     SCANNING = "buscando_nodos"
+    NO_NODES = "sin_nodos"
     SELECTING = "seleccionando_nodo"
     LINKING = "vinculando"
     REQUESTING = "solicitando_datos"
@@ -26,6 +27,7 @@ class BenchEvent(StrEnum):
     READY = "listo"
     SCAN_STARTED = "busqueda_iniciada"
     NODES_FOUND = "nodos_detectados"
+    SCAN_EMPTY = "sin_nodos_detectados"
     SELECT_NODE = "nodo_seleccionado"
     LINK_SENT = "vinculo_enviado"
     LINK_CONFIRMED = "vinculo_confirmado"
@@ -51,6 +53,13 @@ TRANSITIONS: dict[BenchState, dict[BenchEvent, BenchState]] = {
     BenchState.SCANNING: {
         BenchEvent.SCAN_STARTED: BenchState.SCANNING,
         BenchEvent.NODES_FOUND: BenchState.SELECTING,
+        BenchEvent.SCAN_EMPTY: BenchState.NO_NODES,
+        BenchEvent.CANCEL: BenchState.IDLE,
+        BenchEvent.ERROR: BenchState.ERROR,
+    },
+    BenchState.NO_NODES: {
+        BenchEvent.SCAN_STARTED: BenchState.SCANNING,
+        BenchEvent.RESET: BenchState.SCANNING,
         BenchEvent.CANCEL: BenchState.IDLE,
         BenchEvent.ERROR: BenchState.ERROR,
     },

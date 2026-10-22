@@ -54,3 +54,13 @@ class BenchStateMachineTests(unittest.TestCase):
         self.assertIs(session.state, BenchState.IDENTITY_PENDING)
         session.dispatch(BenchEvent.IDENTITY_COMPLETE)
         self.assertIs(session.state, BenchState.EVALUATING)
+
+    def test_empty_scan_can_be_retried(self) -> None:
+        session = BenchSession()
+        session.dispatch(BenchEvent.START)
+        session.dispatch(BenchEvent.READY)
+        session.dispatch(BenchEvent.SCAN_STARTED)
+        session.dispatch(BenchEvent.SCAN_EMPTY)
+        self.assertIs(session.state, BenchState.NO_NODES)
+        session.dispatch(BenchEvent.RESET)
+        self.assertIs(session.state, BenchState.SCANNING)

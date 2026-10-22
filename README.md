@@ -48,7 +48,8 @@ Opciones disponibles:
 El flujo sigue esta secuencia:
 
 1. La persona toca **Buscar nodos**; se envía `remote scan group` y se escucha
-   durante `--scan-seconds`.
+   durante `--scan-seconds`. Si no se detectan nodos, la sesión muestra ese
+   resultado y permite volver a buscar sin quedar en estado de escaneo activo.
 2. Muestra los nodos detectados para que el operador seleccione uno y pulse
    **REQUEST NODE** cuando quiera iniciar la prueba.
 3. Envía `remote identify <mesh_id>` y espera la respuesta `[MAC]` hasta

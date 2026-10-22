@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import re
 import time
 from typing import Any
 
@@ -13,14 +12,13 @@ from textual.containers import Horizontal
 from textual.css.query import NoMatches
 from textual.widgets import Button, RichLog, Select, Static
 
+from .bench_workflow import BenchWorkflow
 from .evaluation import evaluate
 from .remote_server import RemoteConsoleServer
 from .serial_gateway import (
     SerialGateway,
     decode_telemetry,
-    link_result,
     mac_result,
-    normalize_mesh_id,
 )
 from .state_machine import BenchEvent, BenchSession, BenchState
 from .tui_views import BenchTuiViews, ConfirmUnlinkScreen
@@ -178,56 +176,23 @@ class BenchTuiApp(BenchTuiViews, App[None]):
         try:
             if self.gateway is None:
                 raise RuntimeError("El puerto serial no está conectado")
-            if self.session.state is BenchState.IDLE:
-                self.session.dispatch(BenchEvent.START)
-                self.session.dispatch(BenchEvent.READY)
-            elif self.session.state in {
-                BenchState.PASSED,
-                BenchState.FAILED,
-                BenchState.ERROR,
-                BenchState.IDENTITY_PENDING,
-            }:
-                self.session.dispatch(BenchEvent.RESET)
-            elif self.session.state is BenchState.SELECTING:
-                self.session.dispatch(BenchEvent.CANCEL)
-            elif self.session.state is not BenchState.SCANNING:
-                raise RuntimeError(f"No se puede buscar durante {self.session.state.value}")
-
-            self.session.nodes.clear()
-            self.session.selected_node = None
-            self.session.telemetry = None
-            self.session.result = None
-            self.session.mac_address = None
-            self.session.device_id = None
+            selector = self.query_one("#node-select", Select)
+            selector.set_options([])
             self.query_one("#identity-actions", Horizontal).display = False
             self._render_home_summary()
-            self.session.dispatch(BenchEvent.SCAN_STARTED)
-            await self.gateway.send("remote scan group")
-            self._log("TX remote scan group")
             self._begin_activity("Búsqueda de nodos", self.args.scan_seconds)
-            self._refresh_scan_nodes()
-            async for raw in self.gateway.messages(self.args.scan_seconds):
-                self.session.last_serial_message = raw
-                self._log(f"RX {raw}")
-                match = re.search(r"<(?P<mesh>0[xX][0-9A-Fa-f]{1,4})>", raw)
-                if match:
-                    mesh_id = normalize_mesh_id(match.group("mesh"))
-                    if mesh_id not in self.session.nodes:
-                        self.session.nodes.add(mesh_id)
-                        self._log(f"Nodo detectado: {mesh_id}")
-                        self._refresh_scan_nodes()
-                self._refresh_status()
-            if self.session.nodes:
-                self.session.dispatch(BenchEvent.NODES_FOUND)
-                selector = self.query_one("#node-select", Select)
-                selector.set_options((mesh_id, mesh_id) for mesh_id in sorted(self.session.nodes))
-                selector.value = sorted(self.session.nodes)[0]
-                self._log(f"Búsqueda terminada: {len(self.session.nodes)} nodo(s)")
-                self._render_home_summary()
-                if len(self.session.nodes) == 1:
-                    self._log(f"Un solo nodo detectado ({selector.value}); listo para solicitud manual")
-            else:
-                self._log("Búsqueda terminada: no se detectaron nodos")
+            workflow = BenchWorkflow(
+                self.gateway,
+                self.session,
+                on_status=self._log,
+                on_message=lambda raw: self._log(f"RX {raw}"),
+                on_node=lambda _mesh_id: self._refresh_scan_nodes(),
+                progress_labels=False,
+            )
+            nodes = await workflow.scan(self.args.scan_seconds)
+            selector.set_options((mesh_id, mesh_id) for mesh_id in sorted(nodes))
+            if nodes:
+                selector.value = sorted(nodes)[0]
             self._refresh_scan_nodes()
             self._render_home_summary()
         except (OSError, ValueError, RuntimeError) as exc:
@@ -247,83 +212,52 @@ class BenchTuiApp(BenchTuiViews, App[None]):
             }:
                 await self._request_selected_again()
                 return
+
             selected = self.query_one("#node-select", Select).value
-            if not isinstance(selected, str) or selected not in self.session.nodes:
+            if not isinstance(selected, str):
                 raise ValueError("Selecciona un nodo detectado")
-            if self.session.state is not BenchState.SELECTING:
-                raise ValueError(f"No hay un nodo listo para probar ({self.session.state.value})")
-            self.session.selected_node = selected
-            self.session.mac_address = None
-            self.session.device_id = None
-            self.session.telemetry = None
-            self.session.result = None
-            self.query_one("#identity-actions", Horizontal).display = False
-            self.session.dispatch(BenchEvent.SELECT_NODE)
-
-            identify_timeout = getattr(self.args, "identify_timeout", 5.0)
-            await self._identify_mac(selected, identify_timeout)
-            self._update_identity_metrics()
-
-            await self.gateway.send(f"remote link {selected}")
-            self.session.dispatch(BenchEvent.LINK_SENT)
-            self._log(f"TX remote link {selected}")
-            self._begin_activity("Esperando confirmación LINK", self.args.link_timeout)
-            linked = False
-            async for raw in self.gateway.messages(self.args.link_timeout):
-                self.session.last_serial_message = raw
-                self._log(f"RX {raw}")
-                outcome = link_result(raw, selected)
-                if outcome is True:
-                    linked = True
-                    break
-                if outcome is False:
-                    self.session.dispatch(
-                        BenchEvent.LINK_REJECTED,
-                        detail=f"El nodo {selected} respondió UNLINK",
-                    )
-                    self._refresh_status()
-                    return
-            if not linked:
-                self._set_error(f"Timeout esperando confirmación LINK de {selected}")
-                return
-
-            self.session.dispatch(BenchEvent.LINK_CONFIRMED)
-            if self.args.link_settle_seconds:
-                self._begin_activity("Estabilizando vínculo", self.args.link_settle_seconds)
-                await asyncio.sleep(self.args.link_settle_seconds)
-
-            await self._send_manual_request(selected)
-            self.session.dispatch(BenchEvent.DATA_REQUESTED)
-            self._log(f"TX remote request {selected}")
-            self._begin_activity("Esperando telemetría", self.args.response_timeout)
-            async for raw in self.gateway.messages(self.args.response_timeout):
-                self.session.last_serial_message = raw
-                self._log(f"RX {raw}")
-                parsed = decode_telemetry(raw)
-                if parsed is None:
-                    continue
-                mesh_id, payload = parsed
-                if mesh_id != selected:
-                    continue
-                self.session.telemetry = payload
-                tags = payload.get("tags", {})
-                self.session.device_id = tags.get("device_id") if isinstance(tags, dict) else None
-                self.session.dispatch(BenchEvent.DATA_RECEIVED)
-                if not self._identity_complete():
-                    self.session.dispatch(BenchEvent.IDENTITY_INCOMPLETE)
-                    self._show_identity_pending()
-                    self._log("Resultado pendiente: falta MAC o device-id. Reintenta identidad.")
-                    self._refresh_status()
-                    return
-                self._apply_quality_result()
-                self._log(f"Prueba {self.session.result}: {selected}")
-                return
-            self._set_error(f"Timeout esperando telemetría de {selected}")
+            workflow = BenchWorkflow(
+                self.gateway,
+                self.session,
+                on_status=self._workflow_status,
+                on_message=lambda raw: self._log(f"RX {raw}"),
+                progress_labels=False,
+            )
+            outcome = await workflow.test_selected(
+                selected,
+                identify_timeout=getattr(self.args, "identify_timeout", 5.0),
+                link_timeout=self.args.link_timeout,
+                link_settle_seconds=self.args.link_settle_seconds,
+                response_timeout=self.args.response_timeout,
+                request_sender=self._send_manual_request,
+                require_identity=True,
+                rpm_min=getattr(self.args, "rpm_min", None),
+                rpm_max=getattr(self.args, "rpm_max", None),
+                temperature_min=getattr(self.args, "temperature_min", None),
+                temperature_max=getattr(self.args, "temperature_max", None),
+            )
+            if outcome.state is BenchState.IDENTITY_PENDING:
+                self._show_identity_pending()
+            else:
+                self._render_metrics(outcome.failures)
+                self._render_home_summary()
+                self._refresh_status()
         except (OSError, ValueError, RuntimeError) as exc:
             self._set_error(str(exc))
         finally:
             self._end_activity()
             self._set_busy(False)
+
+    def _workflow_status(self, message: str) -> None:
+        self._log(message)
+        if message.startswith("TX remote identify"):
+            self._begin_activity("Consultando MAC con identify", getattr(self.args, "identify_timeout", 5.0))
+        elif message.startswith("TX remote link"):
+            self._begin_activity("Esperando confirmación LINK", self.args.link_timeout)
+        elif message.startswith("Estabilizando vínculo"):
+            self._begin_activity("Estabilizando vínculo", self.args.link_settle_seconds)
+        elif message.startswith("TX remote request"):
+            self._begin_activity("Esperando telemetría", self.args.response_timeout)
 
     async def _request_selected_again(self) -> None:
         selected = self.session.selected_node
