@@ -195,7 +195,23 @@ async def _run_attempt(gateway: SerialGateway, args: argparse.Namespace, session
         print(f"Vínculo confirmado; estabilizando {args.link_settle_seconds:g} s…")
         await asyncio.sleep(args.link_settle_seconds)
 
-    await gateway.send(f"remote request {selected}")
+    remaining = gateway.request_cooldown_remaining()
+    advisory = getattr(gateway, "request_cooldown_is_advisory", lambda: False)()
+    if remaining > 0 and advisory:
+        prompt = f"Tiempo sugerido antes del request: {remaining:.0f} s. ¿Enviar ahora? [s/N]: "
+    elif remaining > 0:
+        prompt = f"Quedan {remaining:.0f} s de espera. ¿Forzar remote request {selected}? [s/N]: "
+    else:
+        prompt = f"Enviar remote request {selected}? [s/N]: "
+    if (await _prompt(prompt)).casefold() not in {"s", "si", "sí", "y", "yes"}:
+        print("Solicitud cancelada por el operador.")
+        return
+
+    request_command = f"remote request {selected}"
+    if remaining > 0 and not advisory:
+        await gateway.send(request_command, force=True)
+    else:
+        await gateway.send(request_command)
     session.dispatch(BenchEvent.DATA_REQUESTED)
     print(f"\nTX remote request {selected}; esperando telemetría por hasta {args.response_timeout:g} s…")
     started = time.monotonic()
@@ -246,14 +262,6 @@ async def _run_terminal(args: argparse.Namespace) -> None:
         print(f"Puerto serial abierto: {args.port} @ {args.baudrate} baud")
         while True:
             try:
-                while (remaining := gateway.request_cooldown_remaining()) > 0:
-                    print(
-                        f"\rEsperando intervalo mínimo entre requests: {remaining:.0f} s",
-                        end="",
-                        flush=True,
-                    )
-                    await asyncio.sleep(min(1.0, remaining))
-                print("\rIntervalo de request disponible.                         ")
                 await _run_attempt(gateway, args, session)
             except (OSError, ValueError, RuntimeError) as exc:
                 if session.state not in {BenchState.ERROR, BenchState.PASSED, BenchState.FAILED}:

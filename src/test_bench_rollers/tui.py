@@ -95,13 +95,15 @@ class BenchTuiApp(App[None]):
     #workspace { height: 1fr; }
     #node-panel { width: 28%; min-width: 28; height: 1fr; padding: 1 2; border: round #292d33; background: #111317; }
     #node-heading { height: 1; color: #8290a2; text-style: bold; }
-    #auto-toggle { width: 1fr; height: 3; margin-top: 1; text-style: bold; }
     #detail-panel { width: 1fr; height: 1fr; margin-left: 1; }
     #state { height: auto; min-height: 2; padding: 0 1; color: #8290a2; }
     #home-summary { height: auto; min-height: 1; max-height: 4; padding: 0 1; color: #8290a2; }
     #scan-nodes { height: 1; color: #8290a2; }
     #node-select { width: 1fr; height: 4; margin: 1 0; }
-    #metrics { height: 1fr; min-height: 12; padding: 1 2; border: round #292d33; background: #111317; color: #dfe5e9; }
+    #clear-test { width: 1fr; height: 3; margin-bottom: 1; text-style: bold; }
+    #metrics-columns { height: 1fr; min-height: 12; }
+    #metrics, #telemetry-metrics { width: 1fr; height: 1fr; min-height: 12; padding: 1 2; border: round #292d33; background: #111317; color: #dfe5e9; }
+    #telemetry-metrics { margin-left: 1; }
     #identity-actions { height: 5; display: none; }
     #identity-actions Button { width: 1fr; height: 4; text-style: bold; }
     #debug-pane { height: 1fr; }
@@ -127,9 +129,6 @@ class BenchTuiApp(App[None]):
         self._unlink_message = "Listo para enviar el comando."
         self._remote_active = False
         self._remote_client: str | None = None
-        self._auto_enabled = False
-        self._auto_running = False
-        self._auto_stop_requested = False
         self.remote_console: RemoteConsoleServer | None = None
         self._last_remote_status: dict[str, Any] | None = None
 
@@ -164,7 +163,7 @@ class BenchTuiApp(App[None]):
                             yield Static("N O D O S", id="node-heading")
                             yield Static("Nodos: ninguno", id="scan-nodes")
                             yield Select([], prompt="Primero busca nodos", allow_blank=True, id="node-select")
-                            yield Button("INICIAR PRUEBA AUTO", id="auto-toggle")
+                            yield Button("LIMPIAR PRUEBA", id="clear-test", disabled=True)
                             yield Static("Esperando búsqueda…", id="state")
                         with Vertical(id="detail-panel"):
                             yield Static(
@@ -172,11 +171,13 @@ class BenchTuiApp(App[None]):
                                 id="home-summary",
                                 markup=False,
                             )
-                            yield Static(
-                                "MAC: —\nDevice-ID: —\nRPM: —\nTemperaturas: —\nAlarmas: —\nResultado: —",
-                                id="metrics",
-                                markup=False,
-                            )
+                            with Horizontal(id="metrics-columns"):
+                                yield Static(
+                                    "MAC: —\nDevice-ID: —\nRPM: —\nTemperaturas: —\nAlarmas: —\nResultado: —",
+                                    id="metrics",
+                                    markup=False,
+                                )
+                                yield Static("Telemetría: —", id="telemetry-metrics", markup=False)
                     with Horizontal(id="identity-actions"):
                         yield Button("REINTENTAR IDENTIDAD", id="retry-identity", variant="warning")
             with TabPane("Depuración", id="debug-tab"):
@@ -237,18 +238,15 @@ class BenchTuiApp(App[None]):
         if event.button.id == "clear-log":
             self.query_one("#serial-log", RichLog).clear()
             return
-        if event.button.id == "auto-toggle":
-            self._toggle_automated_test()
-            return
-        if event.button.id == "test" and self._auto_mode_enabled():
-            self._start_action(self._run_automated_test(), "automated-test")
-            return
         actions = {
             "scan": (self._scan, "scan"),
             "test": (self._test_selected, "test"),
             "retry-identity": (self._retry_identity, "retry-identity"),
             "unlink": (self._unlink_group, "unlink"),
         }
+        if event.button.id == "clear-test":
+            self._clear_test()
+            return
         if event.button.id == "quit":
             self.exit()
             return
@@ -261,47 +259,34 @@ class BenchTuiApp(App[None]):
         self._set_busy(True)
         self.run_worker(worker(), name=name, group="operation", exclusive=True, exit_on_error=False)
 
-    def _toggle_automated_test(self) -> None:
-        if self._auto_enabled:
-            self._set_auto_enabled(False)
-            self._auto_stop_requested = True
-            self._update_visible(
-                "home-summary",
-                "Deteniendo prueba automatizada; no se enviarán más solicitudes.",
-            )
-            self._refresh_status()
-            return
-        if self._remote_active or self._busy:
-            return
-        if self.session.state is BenchState.IDENTITY_PENDING:
-            self._update_visible(
-                "home-summary",
-                "Completa primero la identidad del nodo para activar la prueba automatizada.",
-            )
-            return
-        self._set_auto_enabled(True)
-        if self.session.state in {BenchState.SELECTING, BenchState.PASSED, BenchState.FAILED}:
-            self._start_action(self._run_automated_test(), "automated-test")
-        else:
-            self._update_visible(
-                "home-summary",
-                "Prueba automatizada activada. Busca un nodo para comenzar.",
-            )
-
     def _unlink_confirmation_result(self, confirmed: bool | None) -> None:
         if confirmed:
             self._start_action(self._unlink_group(), "unlink")
         else:
             self._log("Unlink group cancelado por el operador")
 
+    def _clear_test(self) -> None:
+        if self._busy or self._remote_active:
+            return
+        try:
+            self.session.dispatch(BenchEvent.CLEAR_TEST)
+        except ValueError as exc:
+            self._set_error(str(exc))
+            return
+        self.query_one("#identity-actions", Horizontal).display = False
+        selector = self.query_one("#node-select", Select)
+        selector.clear()
+        self._update_visible("home-summary", "Prueba limpiada. Selecciona un nodo para iniciar otra.")
+        self._render_metrics()
+        self._log("Resultado y datos de prueba limpiados; nodos detectados conservados")
+        self._set_busy(False)
+        self._refresh_status()
+
     def action_scan(self) -> None:
         self._start_action(self._scan(), "scan")
 
     def action_test_node(self) -> None:
-        if self._auto_mode_enabled():
-            self._start_action(self._run_automated_test(), "automated-test")
-        else:
-            self._start_action(self._test_selected(), "test")
+        self._start_action(self._test_selected(), "test")
 
     def action_unlink_group(self) -> None:
         if not self._remote_active:
@@ -368,11 +353,7 @@ class BenchTuiApp(App[None]):
                 self._log(f"Búsqueda terminada: {len(self.session.nodes)} nodo(s)")
                 self._render_home_summary()
                 if len(self.session.nodes) == 1:
-                    self._log(f"Un solo nodo detectado ({selector.value}); inicio la prueba automáticamente")
-                    if self._auto_mode_enabled():
-                        await self._run_automated_test(manage_busy=False)
-                    else:
-                        await self._test_selected(manage_busy=False)
+                    self._log(f"Un solo nodo detectado ({selector.value}); listo para solicitud manual")
             else:
                 self._log("Búsqueda terminada: no se detectaron nodos")
             self._refresh_scan_nodes()
@@ -383,24 +364,22 @@ class BenchTuiApp(App[None]):
             self._end_activity()
             self._set_busy(False)
 
-    async def _test_selected(self, *, manage_busy: bool = True) -> None:
+    async def _test_selected(self) -> None:
         try:
             if self.gateway is None:
                 raise RuntimeError("El puerto serial no está conectado")
+            if self.session.link_confirmed and self.session.state in {
+                BenchState.PASSED,
+                BenchState.FAILED,
+                BenchState.ERROR,
+            }:
+                await self._request_selected_again()
+                return
             selected = self.query_one("#node-select", Select).value
             if not isinstance(selected, str) or selected not in self.session.nodes:
                 raise ValueError("Selecciona un nodo detectado")
             if self.session.state is not BenchState.SELECTING:
                 raise ValueError(f"No hay un nodo listo para probar ({self.session.state.value})")
-            if self._request_wait_seconds() > 0:
-                remaining = self._request_wait_seconds()
-                self._update_visible(
-                    "home-summary",
-                    f"Solicitud disponible en {remaining:.0f} s desde la última respuesta exitosa.",
-                )
-                self._refresh_status()
-                return
-
             self.session.selected_node = selected
             self.session.mac_address = None
             self.session.device_id = None
@@ -438,7 +417,7 @@ class BenchTuiApp(App[None]):
                 self._begin_activity("Estabilizando vínculo", self.args.link_settle_seconds)
                 await asyncio.sleep(self.args.link_settle_seconds)
 
-            await self.gateway.send(f"remote request {selected}")
+            await self._send_manual_request(selected)
             self.session.dispatch(BenchEvent.DATA_REQUESTED)
             self._log(f"TX remote request {selected}")
             self._begin_activity("Esperando telemetría", self.args.response_timeout)
@@ -469,121 +448,37 @@ class BenchTuiApp(App[None]):
             self._set_error(str(exc))
         finally:
             self._end_activity()
-            if manage_busy:
-                self._set_busy(False)
+            self._set_busy(False)
 
-    def _auto_mode_enabled(self) -> bool:
-        return self._auto_enabled
-
-    def _set_auto_enabled(self, enabled: bool) -> None:
-        self._auto_enabled = enabled
-        if enabled:
-            self._auto_stop_requested = False
-        button = self.query_one("#auto-toggle", Button)
-        button.label = "DETENER PRUEBA AUTO" if enabled else "INICIAR PRUEBA AUTO"
-        button.variant = "error" if enabled else "default"
-
-    async def _run_automated_test(self, *, manage_busy: bool = True) -> None:
-        if self._auto_running:
-            return
-        self._auto_running = True
-        self.query_one("#auto-toggle", Button).disabled = False
-        if manage_busy:
-            self._set_busy(True)
-        try:
-            if self.session.state is BenchState.SELECTING:
-                await self._test_selected(manage_busy=False)
-            elif self.session.state not in {BenchState.PASSED, BenchState.FAILED}:
-                self._update_visible(
-                    "home-summary",
-                    "Selecciona un nodo listo para iniciar la prueba automatizada.",
-                )
-                self._set_auto_enabled(False)
-                return
-
-            if self.session.state not in {BenchState.PASSED, BenchState.FAILED}:
-                self._set_auto_enabled(False)
-                return
-            if not self._identity_complete():
-                self._update_visible(
-                    "home-summary",
-                    "Completa la identidad del nodo antes de iniciar la prueba automatizada.",
-                )
-                self._set_auto_enabled(False)
-                return
-
-            while (
-                self._auto_mode_enabled()
-                and self.session.state in {BenchState.PASSED, BenchState.FAILED}
-            ):
-                if not await self._wait_for_next_automated_request():
-                    break
-                if not self._auto_mode_enabled():
-                    break
-                if not await self._request_selected_again():
-                    self._set_auto_enabled(False)
-                    break
-        finally:
-            self._auto_running = False
-            self._end_activity()
-            if self._auto_stop_requested:
-                self._update_visible("home-summary", "Prueba automatizada detenida.")
-                self._auto_stop_requested = False
-            if manage_busy:
-                self._set_busy(False)
-
-    async def _wait_for_next_automated_request(self) -> bool:
-        remaining = self._request_wait_seconds()
-        if remaining <= 0:
-            return self._auto_mode_enabled()
-        self._begin_activity("Esperando intervalo para el próximo request", remaining)
-        self._update_visible(
-            "home-summary",
-            f"Prueba automatizada activa · próxima solicitud en {remaining:.0f} s.",
-        )
-        while self._auto_mode_enabled():
-            remaining = self._request_wait_seconds()
-            if remaining <= 0:
-                return True
-            await asyncio.sleep(min(0.25, remaining))
-        return False
-
-    async def _request_selected_again(self) -> bool:
+    async def _request_selected_again(self) -> None:
         selected = self.session.selected_node
-        if self.gateway is None or selected is None:
-            self._set_error("No hay un nodo seleccionado para la solicitud automatizada")
-            return False
-        try:
-            await self.gateway.send(f"remote request {selected}")
-            self.session.result = None
-            self.session.dispatch(BenchEvent.DATA_REQUESTED)
-            self._render_metrics()
-            self._log(f"TX remote request {selected} (prueba automatizada)")
-            self._begin_activity("Esperando telemetría automatizada", self.args.response_timeout)
-            async for raw in self.gateway.messages(self.args.response_timeout):
-                self.session.last_serial_message = raw
-                self._log(f"RX {raw}")
-                parsed = decode_telemetry(raw)
-                if parsed is None or parsed[0] != selected:
-                    continue
-                self.session.telemetry = parsed[1]
-                tags = parsed[1].get("tags", {})
-                self.session.device_id = tags.get("device_id") if isinstance(tags, dict) else None
-                self.session.dispatch(BenchEvent.DATA_RECEIVED)
-                if not self._identity_complete():
-                    self.session.dispatch(BenchEvent.IDENTITY_INCOMPLETE)
-                    self._show_identity_pending()
-                    self._log("Prueba automatizada detenida: identidad incompleta")
-                    return False
-                self._apply_quality_result()
-                self._log(f"Prueba automatizada {self.session.result}: {selected}")
-                return True
-            self._set_error(f"Timeout esperando telemetría automatizada de {selected}")
-        except (OSError, ValueError, RuntimeError) as exc:
-            self._set_error(str(exc))
-        finally:
-            self._end_activity()
-        return False
+        if self.gateway is None or selected is None or not self.session.link_confirmed:
+            raise ValueError("No hay un nodo vinculado listo para solicitar telemetría")
+        await self._send_manual_request(selected)
+        self.session.dispatch(BenchEvent.DATA_REQUESTED)
+        self.session.telemetry = None
+        self._render_metrics()
+        self._log(f"TX remote request {selected} (reintento manual)")
+        self._begin_activity("Esperando telemetría", self.args.response_timeout)
+        async for raw in self.gateway.messages(self.args.response_timeout):
+            self.session.last_serial_message = raw
+            self._log(f"RX {raw}")
+            parsed = decode_telemetry(raw)
+            if parsed is None or parsed[0] != selected:
+                continue
+            self.session.telemetry = parsed[1]
+            tags = parsed[1].get("tags", {})
+            self.session.device_id = tags.get("device_id") if isinstance(tags, dict) else None
+            self.session.dispatch(BenchEvent.DATA_RECEIVED)
+            if not self._identity_complete():
+                self.session.dispatch(BenchEvent.IDENTITY_INCOMPLETE)
+                self._show_identity_pending()
+                self._log("Request recibido, pero falta MAC o device-id")
+                return
+            self._apply_quality_result()
+            self._log(f"Prueba {self.session.result}: {selected}")
+            return
+        self._set_error(f"Timeout esperando telemetría de {selected}")
 
     async def _identify_mac(self, mesh_id: str, timeout: float) -> None:
         if self.session.mac_address:
@@ -614,14 +509,6 @@ class BenchTuiApp(App[None]):
             selected = self.session.selected_node
             await self._identify_mac(selected, getattr(self.args, "identify_timeout", 5.0))
             if not self.session.device_id:
-                remaining = self._request_wait_seconds()
-                if remaining > 0:
-                    self._update_visible(
-                        "home-summary",
-                        f"Falta device-id. Reintento de telemetría disponible en {remaining:.0f} s.",
-                    )
-                    self._refresh_status()
-                    return
                 await self._request_identity_telemetry(
                     selected, getattr(self.args, "response_timeout", 10.0)
                 )
@@ -640,7 +527,7 @@ class BenchTuiApp(App[None]):
 
     async def _request_identity_telemetry(self, mesh_id: str, timeout: float) -> bool:
         assert self.gateway is not None
-        await self.gateway.send(f"remote request {mesh_id}")
+        await self._send_manual_request(mesh_id)
         self._log(f"TX remote request {mesh_id} (reintento de device-id)")
         self._begin_activity("Reintentando consulta de device-id", timeout)
         async for raw in self.gateway.messages(timeout):
@@ -659,6 +546,19 @@ class BenchTuiApp(App[None]):
             return bool(self.session.device_id)
         self._log(f"Timeout esperando telemetría de {mesh_id} durante reintento")
         return False
+
+    async def _send_manual_request(self, mesh_id: str) -> None:
+        assert self.gateway is not None
+        remaining = self._request_wait_seconds()
+        advisory = getattr(self.gateway, "request_cooldown_is_advisory", None)
+        if remaining > 0 and callable(advisory) and advisory():
+            await self.gateway.send(f"remote request {mesh_id}")
+            return
+        send_forced = getattr(self.gateway, "send_forced_request", None)
+        if callable(send_forced):
+            await send_forced(mesh_id)
+        else:
+            await self.gateway.send(f"remote request {mesh_id}")
 
     def _identity_complete(self) -> bool:
         return bool(self.session.mac_address and self.session.device_id)
@@ -754,14 +654,16 @@ class BenchTuiApp(App[None]):
         self._busy = busy
         for widget_id in ("scan", "unlink", "retry-identity", "clear-log"):
             self.query_one(f"#{widget_id}", Button).disabled = busy or self._remote_active
+        clear_button = self.query_one("#clear-test", Button)
+        clear_button.disabled = (
+            busy
+            or self._remote_active
+            or not (self.session.selected_node or self.session.telemetry or self.session.result or self.session.error)
+        )
         self.query_one("#test", Button).disabled = (
             busy
             or self._remote_active
-            or self.session.state is not BenchState.SELECTING
-            or self._request_wait_seconds() > 0
-        )
-        self.query_one("#auto-toggle", Button).disabled = (
-            self._remote_active or (busy and not self._auto_running)
+            or not self._can_request_selected()
         )
         self._refresh_request_button()
         self.query_one("#identity-actions", Horizontal).display = (
@@ -784,9 +686,10 @@ class BenchTuiApp(App[None]):
 
     def _render_metrics(self, failures: list[str] | None = None) -> None:
         selected = self.session.selected_node or "Sin nodo seleccionado"
-        content = Text()
+        identity = Text()
+        telemetry = Text()
 
-        def add_line(label: str = "", value: str = "", *, value_style: str | None = None) -> None:
+        def add_line(content: Text, label: str = "", value: str = "", *, value_style: str | None = None) -> None:
             if content.plain:
                 content.append("\n")
             if label:
@@ -794,9 +697,9 @@ class BenchTuiApp(App[None]):
             if value:
                 content.append(value, style=value_style)
 
-        add_line("Nodo seleccionado: ", selected)
-        add_line("Device ID: ", self.session.device_id or "—")
-        add_line("MAC: ", self.session.mac_address or "No recibida")
+        add_line(identity, "Nodo seleccionado: ", selected)
+        add_line(identity, "Device ID: ", self.session.device_id or "—")
+        add_line(identity, "MAC: ", self.session.mac_address or "No recibida")
         payload = self.session.telemetry
         if payload:
             fields = payload.get("fields", {})
@@ -836,25 +739,26 @@ class BenchTuiApp(App[None]):
                 "PASS": "bold green",
                 "FAIL": "bold red",
             }.get(result, "bold yellow")
-            add_line("Resultado QA: ", result, value_style=result_style)
-            add_line("Criterios aplicados:")
-            add_line(value=f"  - RPM > 0{rpm_range}")
-            add_line(value=f"  - Temperaturas válidas y ≤ {HARDWARE_ALERT_TEMP_C} °C{temperature_range}")
-            add_line(value="  - Sin alarmas latched activas")
-            add_line("Telemetría")
-            add_line("RPM: ", f"{fields.get('rpm', '—')} RPM")
-            add_line("Respuesta: ", "recibida")
-            add_line("Conexión: ", "Online" if self.gateway else "Offline")
-            add_line("Link: ", link_state)
-            add_line("Temperaturas")
+            add_line(identity, "Resultado QA: ", result, value_style=result_style)
+            add_line(identity, "Criterios aplicados:")
+            add_line(identity, value=f"  - RPM > 0{rpm_range}")
+            add_line(identity, value=f"  - Temperaturas válidas y ≤ {HARDWARE_ALERT_TEMP_C} °C{temperature_range}")
+            add_line(identity, value="  - Sin alarmas latched activas")
+            add_line(telemetry, "Telemetría")
+            add_line(telemetry, "RPM: ", f"{fields.get('rpm', '—')} RPM")
+            add_line(telemetry, "Respuesta: ", "recibida")
+            add_line(telemetry, "Conexión: ", "Online" if self.gateway else "Offline")
+            add_line(telemetry, "Link: ", link_state)
+            add_line(telemetry, "Temperaturas")
             for temperature in temperature_lines or ["Sin lecturas de temperatura"]:
-                add_line(value=temperature)
-            add_line("Alarmas: ", str(fields.get("alarms", "—")))
+                add_line(telemetry, value=temperature)
+            add_line(telemetry, "Alarmas: ", str(fields.get("alarms", "—")))
             if failures:
-                add_line("Fallas:")
+                add_line(telemetry, "Fallas:")
                 for failure in failures:
-                    add_line(value=f"  - {failure}")
-        self.query_one("#metrics", Static).update(content)
+                    add_line(telemetry, value=f"  - {failure}")
+        self.query_one("#metrics", Static).update(identity)
+        self.query_one("#telemetry-metrics", Static).update(telemetry if payload else "Sin telemetría recibida.")
 
     @staticmethod
     def _format_range(minimum: float | None, maximum: float | None, *, unit: str) -> str:
@@ -910,11 +814,18 @@ class BenchTuiApp(App[None]):
         cooldown = getattr(self.gateway, "request_cooldown_remaining", None)
         return max(0.0, float(cooldown())) if callable(cooldown) else 0.0
 
+    def _can_request_selected(self) -> bool:
+        if self.session.state is BenchState.SELECTING:
+            return True
+        return self.session.link_confirmed and self.session.state in {
+            BenchState.PASSED,
+            BenchState.FAILED,
+            BenchState.ERROR,
+        }
+
     def _header_status_text(self) -> str:
         if self._remote_active:
             return "UART bajo control remoto"
-        if self._auto_running and not self._auto_enabled:
-            return "Deteniendo prueba auto"
         if self._activity:
             return self._activity
         if (remaining := self._request_wait_seconds()) > 0:
@@ -929,15 +840,15 @@ class BenchTuiApp(App[None]):
         remaining = self._request_wait_seconds()
         if remaining > 0:
             seconds = int(remaining + 0.999)
-            button.label = f"REQUEST NODE · {seconds}s"
-            button.disabled = True
+            advisory = getattr(self.gateway, "request_cooldown_is_advisory", None) if self.gateway else None
+            button.label = (
+                f"REQUEST NODE · {seconds}s"
+                if callable(advisory) and advisory()
+                else f"REQUEST FORZADO {seconds}s"
+            )
         else:
             button.label = "REQUEST NODE"
-            button.disabled = (
-                self._busy
-                or self._remote_active
-                or self.session.state is not BenchState.SELECTING
-            )
+        button.disabled = self._busy or self._remote_active or not self._can_request_selected()
 
     def _remote_status(self) -> dict[str, Any]:
         return {

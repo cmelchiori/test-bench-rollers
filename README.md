@@ -34,12 +34,13 @@ El flujo sigue esta secuencia:
 
 1. La persona toca **Buscar nodos**; se envía `remote scan group` y se escucha
    durante `--scan-seconds`.
-2. Si detecta un nodo, inicia la prueba automáticamente; si detecta varios,
-   permite seleccionar uno en pantalla antes de probarlo.
+2. Muestra los nodos detectados para que el operador seleccione uno y pulse
+   **REQUEST NODE** cuando quiera iniciar la prueba.
 3. Envía `remote identify <mesh_id>` y espera la respuesta `[MAC]` hasta
    `--identify-timeout`.
 4. Envía `remote link <mesh_id>` y espera `<mesh_id> [LINK] linked`.
-5. Tras la pausa de estabilización, envía `remote request <mesh_id>`.
+5. Tras la pausa de estabilización, solicita confirmación manual antes de enviar
+   `remote request <mesh_id>`.
 6. Decodifica `DATA`/`DATAX` usando `packages/mesh-schemas`. Solo emite
    resultado cuando están disponibles MAC y `device-id`; si falta alguno, deja
    la prueba pendiente y permite reintentar únicamente la consulta necesaria,
@@ -47,14 +48,18 @@ El flujo sigue esta secuencia:
 
 En la TUI, las acciones principales usan botones grandes y permanecen en una
 sola pantalla para operar sin teclado. `Operación` muestra nodos detectados,
-selector, identidad, métricas y progreso; `Depuración` contiene el registro
-serial. Si falta la MAC o el `device-id`, el resultado queda pendiente y
-se puede reintentar solo la consulta que falta, sin volver a vincular. Un toque
+selector, identidad y el resultado en dos columnas; `Depuración` contiene el
+registro serial. Cada solicitud requiere una acción del operador. Si falta la
+MAC o el `device-id`, el resultado queda pendiente y se puede reintentar solo la
+consulta que falta, sin volver a vincular. Un toque
 en `Unlink Group` pide confirmación antes de enviar el comando. Tras enviarlo,
 escucha la ventana configurada y registra los mensajes RX; si no hay respuesta,
 lo indica claramente. En la CLI tradicional
 se puede repetir (`r`), consultar el estado (`status`) o salir (`q`); `u` envía
 `remote unlink group`. `Ctrl+C` cancela.
+
+El botón **LIMPIAR PRUEBA** borra el resultado, los datos y el nodo seleccionado,
+conserva la lista de nodos detectados y permite iniciar otra prueba.
 
 ## Consola remota UART
 
@@ -95,13 +100,15 @@ porque deben definirse para el proceso de calidad. Además, se mantiene el lími
 crítico de hardware de la vista QA del gateway: cualquier canal sobre 160 °C da
 FAIL, aunque no se configuren rangos. La pantalla muestra el resultado y los
 criterios aplicados junto a RPM, conexión, link, temperaturas y alarmas.
-Para proteger el nodo, un nuevo `remote request` queda habilitado 65 s después
-de la última respuesta de telemetría válida. La TUI muestra la cuenta regresiva;
-la CLI espera el intervalo y la consola remota rechaza solicitudes anticipadas.
-El botón `INICIAR PRUEBA AUTO` inicia la prueba del nodo seleccionado y luego
-repite la consulta cada 65 s. `DETENER PRUEBA AUTO` evita las siguientes
-solicitudes; si una ya está en curso, espera su respuesta o timeout para cerrar
-el ciclo. Un timeout o una identidad incompleta también detienen la automatización.
+La cuenta regresiva sugerida para el primer request comienza al hacer la primera
+búsqueda de nodos y no bloquea el envío. Después, el intervalo de 65 s vuelve a
+comenzar al recibir telemetría, una respuesta `DATA None` o vencer el timeout de
+una solicitud. La TUI mantiene visible el tiempo restante; durante ese intervalo
+el botón ofrece **REQUEST FORZADO**.
+Después de un `FAIL` o timeout, el mismo botón permite solicitar telemetría otra
+vez para el nodo vinculado, sin repetir búsqueda ni vínculo.
+En la CLI se muestra el tiempo restante y se confirma explícitamente si se quiere
+forzar la solicitud. La consola remota sigue rechazando solicitudes anticipadas.
 
 Ejemplo con límites definidos por el operador:
 

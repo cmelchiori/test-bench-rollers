@@ -28,6 +28,18 @@ ansible-playbook -i deploy/inventory.ini deploy/site.yml --ask-pass --ask-become
 No guardes la contraseña SSH en el inventario ni en el repositorio. Si `pi`
 puede ejecutar `sudo` sin contraseña, omite `--ask-become-pass`.
 
+Para actualizar el código y reiniciar la TUI que corre dentro de `xterm`, usa
+el script desde cualquier directorio del repositorio. Solo requiere la IP de la
+Raspberry; se conecta como `pi`, sincroniza el proyecto, ejecuta `uv sync` y
+reinicia `test-bench-rollers.service`:
+
+```bash
+./deploy/update-raspberry.sh 100.114.144.125
+```
+
+SSH y `sudo` pueden pedir sus contraseñas de forma interactiva. El script no
+modifica la configuración del UART ni reinicia la Raspberry.
+
 Para cambiar el dispositivo serial u otros valores:
 
 ```bash

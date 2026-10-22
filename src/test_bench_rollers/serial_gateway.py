@@ -97,18 +97,27 @@ class SerialGateway:
         self._subscribers: set[asyncio.Queue[str]] = set()
         self._reader: asyncio.Task[None] | None = None
         self._tx_lock = asyncio.Lock()
-        self._last_successful_request_at: float | None = None
+        self._request_cooldown_started_at: float | None = None
+        self._request_timer_is_advisory = False
         self._pending_request_mesh: str | None = None
 
     def request_cooldown_remaining(self) -> float:
-        if self._last_successful_request_at is None:
+        if self._request_cooldown_started_at is None:
             return 0.0
         return max(
             0.0,
-            self._last_successful_request_at
+            self._request_cooldown_started_at
             + REQUEST_COOLDOWN_SECONDS
             - time.monotonic(),
         )
+
+    def request_cooldown_is_advisory(self) -> bool:
+        return self._request_timer_is_advisory
+
+    def _complete_pending_request(self) -> None:
+        self._request_cooldown_started_at = time.monotonic()
+        self._request_timer_is_advisory = False
+        self._pending_request_mesh = None
 
     async def __aenter__(self) -> SerialGateway:
         self._reader = asyncio.create_task(self._read_loop(), name="bench-serial-reader")
@@ -129,13 +138,20 @@ class SerialGateway:
                 if line:
                     await self.rx.put(line)
                     parsed = decode_telemetry(line)
+                    data_match = SERIAL_DATA_RE.fullmatch(line)
+                    response_mesh = (
+                        normalize_mesh_id(data_match.group("mesh"))
+                        if data_match is not None
+                        else parsed[0]
+                        if parsed is not None
+                        else None
+                    )
                     if (
-                        parsed is not None
+                        response_mesh is not None
                         and self._pending_request_mesh is not None
-                        and self._pending_request_mesh in {"*", parsed[0]}
+                        and self._pending_request_mesh in {"*", response_mesh}
                     ):
-                        self._last_successful_request_at = time.monotonic()
-                        self._pending_request_mesh = None
+                        self._complete_pending_request()
                     for subscriber in tuple(self._subscribers):
                         if subscriber.full():
                             with contextlib.suppress(asyncio.QueueEmpty):
@@ -147,16 +163,16 @@ class SerialGateway:
                 await self.rx.put(f"__SERIAL_ERROR__ {type(exc).__name__}: {exc}")
                 return
 
-    async def send(self, command: str) -> None:
+    async def send(self, command: str, *, force: bool = False) -> None:
         async with self._tx_lock:
             request_match = REQUEST_COMMAND_RE.fullmatch(command.strip())
             is_request = IS_REQUEST_COMMAND_RE.match(command.strip()) is not None
             if is_request:
                 wait_seconds = self.request_cooldown_remaining()
-                if wait_seconds > 0:
+                if wait_seconds > 0 and not force and not self._request_timer_is_advisory:
                     raise RuntimeError(
                         f"remote request disponible en {wait_seconds:.0f} s "
-                        f"(mínimo {REQUEST_COOLDOWN_SECONDS:.0f} s desde la última respuesta exitosa)"
+                        f"(mínimo {REQUEST_COOLDOWN_SECONDS:.0f} s desde la última respuesta o timeout)"
                     )
             await self.serial.write_async(command.encode("utf-8") + b"\r")
             flush = getattr(self.serial, "flush", None)
@@ -167,12 +183,21 @@ class SerialGateway:
                 except asyncio.CancelledError:
                     await asyncio.shield(flush_task)
                     raise
+            if (
+                command.strip().casefold() == "remote scan group"
+                and self._request_cooldown_started_at is None
+            ):
+                self._request_cooldown_started_at = time.monotonic()
+                self._request_timer_is_advisory = True
             if is_request:
                 self._pending_request_mesh = (
                     normalize_mesh_id(request_match.group("mesh"))
                     if request_match is not None
                     else "*"
                 )
+
+    async def send_forced_request(self, mesh_id: str) -> None:
+        await self.send(f"remote request {mesh_id}", force=True)
 
     def subscribe(self, *, max_queue_size: int = 500) -> asyncio.Queue[str]:
         """Subscribe to new RX lines without stealing them from workflow consumers."""
@@ -215,3 +240,5 @@ class SerialGateway:
             yield line
         if progress_label:
             print()
+        if self._pending_request_mesh is not None:
+            self._complete_pending_request()

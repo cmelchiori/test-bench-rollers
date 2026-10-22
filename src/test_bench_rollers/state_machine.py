@@ -32,6 +32,7 @@ class BenchEvent(StrEnum):
     LINK_REJECTED = "vinculo_rechazado"
     DATA_REQUESTED = "datos_solicitados"
     DATA_RECEIVED = "datos_recibidos"
+    CLEAR_TEST = "limpiar_prueba"
     PASS = "aprobado"
     FAIL = "rechazado"
     IDENTITY_INCOMPLETE = "identidad_incompleta"
@@ -56,6 +57,7 @@ TRANSITIONS: dict[BenchState, dict[BenchEvent, BenchState]] = {
     BenchState.SELECTING: {
         BenchEvent.SELECT_NODE: BenchState.LINKING,
         BenchEvent.CANCEL: BenchState.SCANNING,
+        BenchEvent.CLEAR_TEST: BenchState.SELECTING,
         BenchEvent.ERROR: BenchState.ERROR,
     },
     BenchState.LINKING: {
@@ -77,22 +79,27 @@ TRANSITIONS: dict[BenchState, dict[BenchEvent, BenchState]] = {
     },
     BenchState.IDENTITY_PENDING: {
         BenchEvent.IDENTITY_COMPLETE: BenchState.EVALUATING,
+        BenchEvent.CLEAR_TEST: BenchState.SELECTING,
         BenchEvent.RESET: BenchState.SCANNING,
         BenchEvent.ERROR: BenchState.ERROR,
     },
     BenchState.PASSED: {
         BenchEvent.RESET: BenchState.SCANNING,
+        BenchEvent.CLEAR_TEST: BenchState.SELECTING,
         BenchEvent.DATA_REQUESTED: BenchState.REQUESTING,
         BenchEvent.ERROR: BenchState.ERROR,
     },
     BenchState.FAILED: {
         BenchEvent.RESET: BenchState.SCANNING,
+        BenchEvent.CLEAR_TEST: BenchState.SELECTING,
         BenchEvent.DATA_REQUESTED: BenchState.REQUESTING,
         BenchEvent.ERROR: BenchState.ERROR,
     },
     BenchState.ERROR: {
         BenchEvent.RESET: BenchState.SCANNING,
+        BenchEvent.CLEAR_TEST: BenchState.SELECTING,
         BenchEvent.CANCEL: BenchState.IDLE,
+        BenchEvent.DATA_REQUESTED: BenchState.REQUESTING,
     },
 }
 
@@ -108,6 +115,7 @@ class BenchSession:
     result: str | None = None
     error: str | None = None
     last_serial_message: str | None = None
+    link_confirmed: bool = False
 
     def dispatch(self, event: BenchEvent, *, detail: str | None = None) -> BenchState:
         try:
@@ -119,6 +127,21 @@ class BenchSession:
             self.error = detail or "Error sin detalle"
         if event is BenchEvent.LINK_REJECTED:
             self.error = detail or "El nodo rechazó el vínculo"
+            self.link_confirmed = False
+        if event is BenchEvent.LINK_CONFIRMED:
+            self.link_confirmed = True
+        if event is BenchEvent.DATA_REQUESTED:
+            self.result = None
+            self.error = None
+        if event is BenchEvent.CLEAR_TEST:
+            self.selected_node = None
+            self.mac_address = None
+            self.device_id = None
+            self.telemetry = None
+            self.result = None
+            self.error = None
+            self.last_serial_message = None
+            self.link_confirmed = False
         if event is BenchEvent.RESET:
             self.nodes.clear()
             self.selected_node = None
@@ -128,4 +151,5 @@ class BenchSession:
             self.result = None
             self.error = None
             self.last_serial_message = None
+            self.link_confirmed = False
         return self.state
