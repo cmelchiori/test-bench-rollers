@@ -1,0 +1,22 @@
+[Unit]
+Description=Test Bench Rollers terminal application
+After=network-online.target display-manager.service
+Wants=network-online.target
+Requires=display-manager.service
+
+[Service]
+Type=simple
+User={{ app_user }}
+SupplementaryGroups=dialout
+WorkingDirectory={{ app_dir }}
+Environment=HOME=/home/{{ app_user }}
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/{{ app_user }}/.Xauthority
+ExecStart=/usr/bin/xterm -fullscreen -fa Monospace -fs 12 -e {{ app_dir }}/.venv/bin/test-bench-rollers --port {{ serial_port }} --baudrate {{ serial_baudrate }} --remote-port {{ remote_console_port }}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

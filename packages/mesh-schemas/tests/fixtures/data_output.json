@@ -1,0 +1,60 @@
+{
+  "schema": "roller-data-1.0",
+  "gateway": null,
+  "device": {
+    "id": "0xC49456",
+    "mesh_id": null,
+    "alarms": {
+      "b0": false,
+      "b1": false,
+      "b2": false,
+      "b3": false,
+      "b4": false,
+      "b5": false,
+      "b6": false,
+      "b7": false
+    },
+    "metrics": {
+      "power": {
+        "vin": 13.4,
+        "vdd": 3.32
+      },
+      "rpm": 259,
+      "temperature": [24, 25, 24, 24],
+      "audio": {
+        "scale": 10.0,
+        "rms": 0.078,
+        "amplitude": [0.088, 0.0391, 0.0587, 0.0293, 0.0196, 0.0196, 0.0293, 0.0098],
+        "freq": [339.63, 583.77, 833.15, 1218.26, 1364.25, 1710.81, 1908.1, 2298.02]
+      },
+      "accel": {
+        "axial": {
+          "scale": 0.4,
+          "rms": 0.003,
+          "amplitude": [0.002, 0.0008, 0.0012, 0.0008, 0.0008, 0.0008, 0.0008, 0.0008],
+          "freq": [7.83, 13.63, 15.68, 21.32, 44.0, 67.39, 82.7, 139.7]
+        },
+        "radial": {
+          "scale": 0.4,
+          "rms": 0.009,
+          "amplitude": [0.002, 0.0039, 0.0074, 0.002, 0.002, 0.002, 0.002, 0.002],
+          "freq": [5.88, 8.71, 17.67, 25.39, 29.22, 36.17, 38.07, 41.81]
+        }
+      },
+      "odometer": {
+        "session": 851,
+        "total": 1212942
+      },
+      "horometer": {
+        "session": 3,
+        "total": 4018,
+        "cycles": 63
+      }
+    }
+  },
+  "timestamps": {
+    "sent": null,
+    "req_node": null,
+    "res_node": null
+  }
+}

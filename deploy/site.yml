@@ -1,0 +1,176 @@
+---
+- name: Deploy Test Bench Rollers to Raspberry Pi
+  hosts: raspberry
+  become: true
+
+  vars:
+    app_name: test-bench-rollers
+    app_dir: /opt/test-bench-rollers
+    app_user: pi
+    serial_port: /dev/serial0
+    serial_baudrate: 115200
+    remote_console_port: 8765
+    python_version: "3.13"
+    uv_bin: /usr/local/bin/uv
+
+  tasks:
+    - name: Check Raspberry Pi OS firmware boot config paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /boot/firmware/config.txt
+        - /boot/config.txt
+      register: boot_config_candidates
+
+    - name: Select boot configuration path
+      ansible.builtin.set_fact:
+        raspberry_config_txt: >-
+          {{ (boot_config_candidates.results | selectattr('stat.exists') | map(attribute='item') | first)
+             | default('/boot/firmware/config.txt') }}
+        raspberry_cmdline_txt: >-
+          {{ '/boot/firmware/cmdline.txt'
+             if ansible_facts['distribution_release'] in ['bookworm', 'trixie']
+             else '/boot/cmdline.txt' }}
+
+    - name: Enable Raspberry Pi UART hardware
+      ansible.builtin.lineinfile:
+        path: "{{ raspberry_config_txt }}"
+        regexp: '^enable_uart='
+        line: enable_uart=1
+        create: false
+      notify: Reboot Raspberry Pi to apply UART configuration
+
+    - name: Check kernel command line file
+      ansible.builtin.stat:
+        path: "{{ raspberry_cmdline_txt }}"
+      register: cmdline_file
+
+    - name: Remove serial console from kernel command line
+      ansible.builtin.replace:
+        path: "{{ raspberry_cmdline_txt }}"
+        regexp: '(^|\s+)console=(serial0|ttyAMA0|ttyS0),[^\s]+'
+        replace: ''
+      when: cmdline_file.stat.exists
+      notify: Reboot Raspberry Pi to apply UART configuration
+
+    - name: Install system packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+          - build-essential
+          - xterm
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install uv
+      ansible.builtin.shell: |
+        set -eu
+        installer=$(mktemp)
+        trap 'rm -f "$installer"' EXIT
+        curl -LsSf https://astral.sh/uv/install.sh -o "$installer"
+        env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh "$installer"
+      args:
+        creates: "{{ uv_bin }}"
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: Copy project metadata
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../{{ item }}"
+        dest: "{{ app_dir }}/{{ item }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: preserve
+      loop:
+        - pyproject.toml
+        - uv.lock
+        - README.md
+
+    - name: Copy application source and local schema package
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../{{ item }}/"
+        dest: "{{ app_dir }}/{{ item }}/"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+      loop:
+        - src
+        - packages/mesh-schemas
+
+    - name: Install Python runtime
+      ansible.builtin.command:
+        argv:
+          - "{{ uv_bin }}"
+          - python
+          - install
+          - "{{ python_version }}"
+      become_user: "{{ app_user }}"
+      environment:
+        HOME: "/home/{{ app_user }}"
+      register: python_install
+      changed_when: "'Installed' in python_install.stdout"
+
+    - name: Sync application environment
+      ansible.builtin.command:
+        argv:
+          - "{{ uv_bin }}"
+          - sync
+          - --frozen
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: "{{ app_user }}"
+      environment:
+        HOME: "/home/{{ app_user }}"
+
+    - name: Add operator to serial device group
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        groups: dialout
+        append: true
+
+    - name: Install systemd service
+      ansible.builtin.template:
+        src: templates/test-bench-rollers.service.j2
+        dest: /etc/systemd/system/{{ app_name }}.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart test bench service
+
+    - name: Restore login prompt on the text console
+      ansible.builtin.systemd:
+        name: getty@tty1.service
+        enabled: true
+        state: started
+
+    - name: Disable serial login console
+      ansible.builtin.systemd:
+        name: serial-getty@serial0.service
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Enable and start test bench service
+      ansible.builtin.systemd:
+        name: "{{ app_name }}.service"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Reboot Raspberry Pi to apply UART configuration
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+
+    - name: Restart test bench service
+      ansible.builtin.systemd:
+        name: "{{ app_name }}.service"
+        state: restarted
+        daemon_reload: true

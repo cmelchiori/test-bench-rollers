@@ -1,0 +1,38 @@
+[project]
+name = "mesh-schemas"
+version = "0.2.0"
+description = "Versioned Base85 decoders and telemetry schemas for Mesh Gateway"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.12.5"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.2",
+    "pyright>=1.1.405",
+    "pytest>=8.4.2",
+    "ruff==0.16.7",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+explicit_package_bases = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"

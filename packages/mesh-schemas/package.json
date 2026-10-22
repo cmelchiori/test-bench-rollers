@@ -1,0 +1,10 @@
+{
+  "name": "@mesh-gateway/mesh-schemas",
+  "private": true,
+  "scripts": {
+    "build": "PYTHONDONTWRITEBYTECODE=1 uv build",
+    "lint": "uv run ruff check .",
+    "check-types": "PYTHONDONTWRITEBYTECODE=1 uv run pyright && PYTHONDONTWRITEBYTECODE=1 uv run mypy --no-incremental --cache-dir=.mypy_cache src tests",
+    "test": "PYTHONDONTWRITEBYTECODE=1 uv run pytest -p no:cacheprovider"
+  }
+}
