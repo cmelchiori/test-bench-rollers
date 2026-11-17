@@ -27,5 +27,6 @@ for _decoder_module in (
     ".decoders.roller_data_v10",
     ".decoders.roller_data_v11",
     ".decoders.roller_data_v12",
+    ".decoders.roller_data_v13",
 ):
     import_module(_decoder_module, package=__package__)

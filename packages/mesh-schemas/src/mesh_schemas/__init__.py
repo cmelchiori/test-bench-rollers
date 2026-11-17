@@ -6,6 +6,7 @@ from .schemas import (
     ROLLER_DATA_V10_SCHEMA,
     ROLLER_DATA_V11_SCHEMA,
     ROLLER_DATA_V12_SCHEMA,
+    ROLLER_DATA_V13_SCHEMA,
     RollerDataMetadata,
     RollerDataPayload,
     RollerDataTags,
@@ -16,6 +17,7 @@ from .schemas import (
     RollerDataV11Metadata,
     RollerDataV11Tags,
     RollerDataV12,
+    RollerDataV13,
     TelemetryPayload,
 )
 
@@ -24,6 +26,7 @@ __all__ = [
     "ROLLER_DATA_V10_SCHEMA",
     "ROLLER_DATA_V11_SCHEMA",
     "ROLLER_DATA_V12_SCHEMA",
+    "ROLLER_DATA_V13_SCHEMA",
     "Base85Decoder",
     "DecoderRegistry",
     "RollerDataMetadata",
@@ -36,6 +39,7 @@ __all__ = [
     "RollerDataV11Metadata",
     "RollerDataV11Tags",
     "RollerDataV12",
+    "RollerDataV13",
     "TelemetryPayload",
     "decode_base85_payload",
     "register_decoder",

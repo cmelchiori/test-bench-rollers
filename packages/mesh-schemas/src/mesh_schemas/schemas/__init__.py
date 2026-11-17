@@ -15,14 +15,16 @@ from .roller_data_v11 import (
     RollerDataV11Tags,
 )
 from .roller_data_v12 import ROLLER_DATA_V12_SCHEMA, RollerDataV12
+from .roller_data_v13 import ROLLER_DATA_V13_SCHEMA, RollerDataV13
 from .telemetry import TelemetryPayload
 
-RollerDataPayload = RollerDataV10 | RollerDataV11 | RollerDataV12
+RollerDataPayload = RollerDataV10 | RollerDataV11 | RollerDataV12 | RollerDataV13
 
 __all__ = [
     "ROLLER_DATA_V10_SCHEMA",
     "ROLLER_DATA_V11_SCHEMA",
     "ROLLER_DATA_V12_SCHEMA",
+    "ROLLER_DATA_V13_SCHEMA",
     "RollerDataMetadata",
     "RollerDataPayload",
     "RollerDataTags",
@@ -33,5 +35,6 @@ __all__ = [
     "RollerDataV11Metadata",
     "RollerDataV11Tags",
     "RollerDataV12",
+    "RollerDataV13",
     "TelemetryPayload",
 ]

@@ -18,23 +18,34 @@ if payload is not None:
 Cada resultado normalizado contiene `schema`, `tags`, `fields` y `metadata`. Los
 identificadores Mesh, timestamps, la persistencia y la publicación pertenecen a la
 aplicación consumidora. Actualmente se incluyen `roller-data-1.0` (DATA legado),
-`roller-data-1.1` (`DATA`) y `roller-data-1.2` (`DATAX`); la aplicación decide
-cuál corresponde a cada mensaje.
+`roller-data-1.1` (`DATA`), `roller-data-1.2` (DATAX anterior) y
+`roller-data-1.3` (nuevo DATAX); la aplicación decide cuál corresponde a cada
+mensaje.
 
-La decodificación sigue el algoritmo de `apps/decoder` del gateway de referencia:
-VIN usa el rango 0–51 V y el RMS de armónicos incluye el factor 4. DATAX conserva
-los campos DATA y agrega 256 bits; crest y kurtosis usan resolución 0.1
-(`max_code=250`). Los campos adicionales no se redondean: RMS y amplitudes
-invierten la escala de raíz cúbica elevando al cubo el código normalizado.
-Las amplitudes de rodamientos son porcentajes del RMS (0–140), no aceleraciones.
-Se exigen exactamente 120 o 160 caracteres, sin eliminar espacios ni saltos de línea.
+En `roller-data-1.0` a `1.2`, VIN usa el rango 0–51 V y el RMS de armónicos
+incluye el factor 4 del decoder de referencia. `roller-data-1.2` conserva la
+trama DATA y agrega 256 bits; sus crest y kurtosis usan resolución 0.1
+(`max_code=250`). Los RMS estadísticos y amplitudes de rodamientos invierten la
+escala de raíz cúbica elevando al cubo el código normalizado. Las amplitudes de
+rodamientos son porcentajes del RMS (0–140), no aceleraciones.
+
+`roller-data-1.3` define una trama nueva de 124 bytes: recibe 155 caracteres Z85
+y representa armónicos como diez pares de frecuencia y amplitud. La amplitud
+física se obtiene multiplicando el peak por el porcentaje recibido; el modelo
+incluye ambos valores y conserva la unidad del peak (mV para audio, g para
+aceleración).
+El shield elimina el prefijo `d]` antes de entregar el payload. `power.vin` usa
+el rango 0–51 V. Cada decoder exige el largo exacto de su formato, sin eliminar
+espacios ni saltos de línea.
 
 `roller-data-1.0` modela la cabecera legada como
 `metadata.hardware_version` y `metadata.firmware_version`. En `roller-data-1.1`
 y `roller-data-1.2`, las alarmas `b0`…`b7` se conservan como máscara en
-`fields.alarms.latched.all`, con `b0` en el bit menos significativo. En todos
-los schemas `device.id` se representa en `tags.device_id` y las métricas en
-`fields`.
+`fields.alarms.latched.all`, con `b0` en el bit menos significativo. En
+`roller-data-1.3`, `fields.alarms.code` conserva el byte y expone por nombre los
+seis bits latched y los dos bits de captura no latched, desde el bit menos
+significativo. En todos los schemas `device.id` se representa en
+`tags.device_id` y las métricas en `fields`.
 `stat.crest`/`stat.kurt` corresponden a `statistics.crest_factor`/`statistics.kurtosis`;
 `stat.disp`/`stat.angle` radial a `axis_preference`/`cross_coupling`.
 Los rodamientos usan `frequency` y `amplitude.axial`/`amplitude.radial`, con claves

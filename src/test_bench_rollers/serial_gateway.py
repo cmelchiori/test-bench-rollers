@@ -13,6 +13,7 @@ from mesh_schemas import (
     ROLLER_DATA_V10_SCHEMA,
     ROLLER_DATA_V11_SCHEMA,
     ROLLER_DATA_V12_SCHEMA,
+    ROLLER_DATA_V13_SCHEMA,
     decode_base85_payload,
 )
 
@@ -31,6 +32,7 @@ SCHEMA_BY_MESSAGE = {
     "DATA1.1": ROLLER_DATA_V11_SCHEMA,
     "DATAX": ROLLER_DATA_V12_SCHEMA,
     "DATA1.2": ROLLER_DATA_V12_SCHEMA,
+    "DATA1.3": ROLLER_DATA_V13_SCHEMA,
 }
 REQUEST_COOLDOWN_SECONDS = 65.0
 REQUEST_COMMAND_RE = re.compile(r"^remote\s+request\s+(?P<mesh>0[xX][0-9A-Fa-f]{1,4})$", re.IGNORECASE)
@@ -51,7 +53,9 @@ def decode_telemetry(raw: str) -> tuple[str, dict[str, object]] | None:
         return None
     kind = (match.group("type") or "").upper()
     if not kind:
-        kind = {120: "DATA", 160: "DATAX"}.get(len(match.group("payload")), "")
+        kind = {120: "DATA", 155: "DATA1.3", 160: "DATAX"}.get(len(match.group("payload")), "")
+    elif kind == "DATAX" and len(match.group("payload")) == 155:
+        kind = "DATA1.3"
     schema = SCHEMA_BY_MESSAGE.get(kind)
     if schema is None:
         return None
